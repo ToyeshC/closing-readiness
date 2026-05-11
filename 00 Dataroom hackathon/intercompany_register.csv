@@ -1,0 +1,8 @@
+scenario_id;scenario_type;reference;gl_account;organizer_note
+IC-001;Acquisition journal;J24ICACQ;0600/1430;Acquisition booked in July 2024 by memorial journal
+IC-002;Current-account funding;B24ICACQ;1430;Bank payment funds daughter after acquisition
+IC-003;Service invoice to daughter;V249904;8100/1300;Parent invoices setup/implementation services to daughter.
+IC-004;Recurring service invoices;V259901/V259902;8100/1300;Parent charges management and workshop capacity to daughter.
+IC-005;Service invoices from daughter;I259903/I259904;4666/1700;Daughter recharges lease administration/service desk costs.
+IC-006;Open current account;IC-MWLS-RC-*;1430;Payments over and again 
+IC-007;Filed tax payments;VAT-FILED/CIT/WAGE refs;1870/1880/1900;Bank payments
