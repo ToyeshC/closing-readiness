@@ -1,1 +1,6 @@
 00 Dataroom hackathon/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.env
