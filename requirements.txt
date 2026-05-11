@@ -1,0 +1,9 @@
+pandas>=2.0
+openpyxl
+pdfplumber
+pydantic>=2.0
+pytest
+pytest-asyncio
+fastapi
+uvicorn
+httpx
