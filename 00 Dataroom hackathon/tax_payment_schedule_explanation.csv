@@ -1,0 +1,29 @@
+payment_type;reference;bank_amount;payment_date;gl_account;note
+type of tax - VAT or Wage tax or CIT;reference for the filing/payment;negative cash movement (aka cost);date of payment (oldest on top);general ledger account number (1870, 1880, 1900); notes which is currently empty
+VAT;VAT-FILED-2024-Q1;-35226.14;30-4-2024;1870; A value-added tax (VAT) payment for the first quarter of 2024. €35,226.14 paid OUT on April 30, 2024, recorded in GL account 1870.
+VAT;VAT-FILED-2024-Q2;-38445.2;31-7-2024;1870; A value-added tax (VAT) payment for the second quarter of 2024. €38,445.20 paid OUT on July 31, 2024, recorded in GL account 1870.
+VAT;VAT-FILED-2024-Q3;-33867.54;31-10-2024;1870; A value-added tax (VAT) payment for the third quarter of 2024. €33,867.54 paid OUT on October 31, 2024, recorded in GL account 1870.
+Wage tax;WAGE-FILED-FY2024;-77203.15;31-12-2024;1900; A wage tax (Company owes payroll taxes) payment for the fiscal year 2024. €77,203.15 paid OUT on December 31, 2024, recorded in GL account 1900.
+VAT;VAT-FILED-2024-Q4;-37885.28;31-1-2025;1870; A value-added tax (VAT) payment for the fourth quarter of 2024. €37,885.28 paid OUT on January 31, 2025, recorded in GL account 1870.
+VAT;VAT-FILED-2025-Q1;-35161.61;30-4-2025;1870; A value-added tax (VAT) payment for the first quarter of 2025. €35,161.61 paid OUT on April 30, 2025, recorded in GL account 1870.
+VAT;VAT-FILED-2025-Q2;-40521.86;31-7-2025;1870; A value-added tax (VAT) payment for the second quarter of 2025. €40,521.86 paid OUT on July 31, 2025, recorded in GL account 1870.
+VAT;VAT-FILED-2025-Q3;-34903.26;31-10-2025;1870; A value-added tax (VAT) payment for the third quarter of 2025. €34,903.26 paid OUT on October 31, 2025, recorded in GL account 1870.
+VAT;VAT-FILED-2025-Q4;-38536.44;31-12-2025;1870; A value-added tax (VAT) payment for the fourth quarter of 2025. €38,536.44 paid OUT on December 31, 2025, recorded in GL account 1870.
+CIT;CIT-FILED-2024;-96365.31;31-5-2025;1880; A corporate income tax (CIT) payment for the year 2024. FILED: Actual filed tax return after year-end close. €96,365.31 paid OUT on May 31, 2025, recorded in GL account 1880.
+CIT;CIT-PROV-2025;-102433.06;20-12-2025;1880; A corporate income tax (CIT) provision for the year 2025. PROV: Estimated/prepaid tax during year. €102,433.06 paid OUT on December 20, 2025, recorded in GL account 1880.
+Wage tax;WAGE-FILED-FY2025;-80209.53;31-12-2025;1900; A wage tax (Company owes payroll taxes) payment for the fiscal year 2025. €80,209.53 paid OUT on December 31, 2025, recorded in GL account 1900.
+
+-----
+This file appears to be a schedule of tax payments,
+including VAT, wage tax, and corporate income tax (CIT).
+Each entry includes the type of tax, a reference for the payment, the amount paid (noted as negative), the date of payment, the general ledger account number associated with the payment, and a note field which is currently empty.
+The schedule lists payments in chronological order, starting with the oldest.
+
+Some insights:
+- GL account mappings (we now know where tax liabilities live in the ledger):
+  - 1870: VAT payable
+  - 1880: Corporate income tax
+  - 1900: Wage tax payable
+- Noticed the VAT Q4 2024 was paid on 31-1-2025
+  - That means: 2024 obligations spill into 2025 cash movements
+- CIT for 2024 was paid on 31-5-2025, which is after the year-end close of 2024.
