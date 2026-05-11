@@ -27,7 +27,7 @@ We are building a closing readiness and financial data quality tool for **Fietsa
 │   └── checks/
 │       ├── __init__.py
 │       ├── suspense.py
-│       ├── drafts.py
+│       ├── todo_discrepancy.py          # replaces drafts.py — no status column exists in GL export
 │       ├── revenue_reconciliation.py
 │       ├── capex_opex.py
 │       ├── bank_coverage.py
@@ -37,7 +37,7 @@ We are building a closing readiness and financial data quality tool for **Fietsa
 └── tests/
     ├── conftest.py                  # shared fixtures — make_dataset_with(), make_clean_dataset()
     ├── test_suspense.py
-    ├── test_drafts.py
+    ├── test_todo_discrepancy.py
     ├── test_revenue_reconciliation.py
     ├── test_capex_opex.py
     ├── test_bank_coverage.py
@@ -330,7 +330,7 @@ class ReadinessEngine:
     def run(self) -> DataReadinessReport:
         checks = [
             check_suspense_accounts(self.dataset),
-            check_draft_entries(self.dataset),
+            check_todo_folder_discrepancy(self.dataset),  # replaces check_draft_entries — no status column
             check_revenue_reconciliation(self.dataset),
             check_capex_opex(self.dataset),
             check_bank_coverage(self.dataset),

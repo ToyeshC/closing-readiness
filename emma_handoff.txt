@@ -44,6 +44,7 @@ Create backend/models.py with exactly this content:
         tax_schedule: list[dict]
         items: list[dict]
         item_groups: list[dict]
+        todo_discrepancies: list[dict]  # files in to do/ vs main — already populated by data_loader
 
     class DataReadinessReport(BaseModel):
         dataset: FinancialDataset
