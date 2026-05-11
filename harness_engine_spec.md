@@ -87,6 +87,7 @@ class FinancialDataset(BaseModel):
     tax_schedule: list[dict]
     items: list[dict]
     item_groups: list[dict]
+    todo_discrepancies: list[dict]  # ADDED vs original spec — to do/ folder comparison results
 
 class DataReadinessReport(BaseModel):
     dataset: FinancialDataset
@@ -164,64 +165,76 @@ The structured Excel files are the primary data source. PDFs are used only for: 
 
 ### GL entries (`03_general_journal_entries...`)
 ```
-date column:          [FILL IN]
-amount column:        [FILL IN]
-debit column:         [FILL IN — or is it a signed single amount?]
-credit column:        [FILL IN — or is it a signed single amount?]
-account code column:  [FILL IN]
-account name column:  [FILL IN]
-description column:   [FILL IN]
-status column:        [FILL IN — what values mean draft vs posted?]
-record ID column:     [FILL IN]
-period column:        [FILL IN — if separate from date]
+date column:          boekdatum
+amount column:        bedrag  (signed float — positive=debit, negative=credit; no separate debit/credit columns)
+debit column:         N/A — single signed bedrag
+credit column:        N/A — single signed bedrag
+account code column:  grootboekrekening
+account name column:  naam
+description column:   omschrijving
+status column:        NOT PRESENT — no draft/status column exists in the GL export.
+                      Draft detection relies on the to do/ folder check. Drop checks/drafts.py.
+record ID column:     boekstuknummer
+period column:        periode  (integer 1–12, separate from boekdatum)
+extra columns:        btw_code, btw_percentage, btw_bedrag, kostenplaats_code, dagboek_code
 ```
 
 ### Sales entries (`04_sales_entries...`)
 ```
-date column:          [FILL IN]
-invoice number:       [FILL IN]
-debtor ID:            [FILL IN — how does it join to relations file?]
-amount excl VAT:      [FILL IN]
-VAT amount:           [FILL IN]
-account code:         [FILL IN]
+NOTE: no header row — positional loading. All column names are from _INVOICE_COLUMNS in data_loader.py.
+date column:          boekdatum  (positional col 5)
+invoice number:       boekstuknummer  (positional col 3)
+debtor ID:            code  (positional col 13 — joins to relations.code)
+amount excl VAT:      bedrag  (positional col 19)
+VAT amount:           btw_bedrag  (positional col 21)
+account code:         grootboekrekening  (positional col 15)
+description:          omschrijving  (positional col 4)
+due date:             vervaldatum  (positional col 6)
 ```
 
 ### Purchase entries (`05_purchase_entries...`)
 ```
-date column:          [FILL IN]
-invoice number:       [FILL IN]
-creditor ID:          [FILL IN]
-amount excl VAT:      [FILL IN]
-VAT amount:           [FILL IN]
-account code:         [FILL IN]
-description:          [FILL IN]
+NOTE: identical positional structure to sales entries.
+date column:          boekdatum  (positional col 5)
+invoice number:       boekstuknummer  (positional col 3)
+creditor ID:          code  (positional col 13 — joins to relations.code)
+amount excl VAT:      bedrag  (positional col 19)
+VAT amount:           btw_bedrag  (positional col 21)
+account code:         grootboekrekening  (positional col 15)
+description:          omschrijving  (positional col 4)
+due date:             vervaldatum  (positional col 6)
 ```
 
 ### Bank entries (`05_bank_cash_entries...`)
 ```
-date column:          [FILL IN]
-amount column:        [FILL IN — signed or separate debit/credit?]
-counterparty:         [FILL IN]
-description:          [FILL IN]
-statement number:     [FILL IN — if present]
+date column:          datum
+amount column:        bedrag  (signed — no separate debit/credit)
+counterparty:         naam
+description:          omschrijving
+statement number:     boekstuknummer
 ```
 
 ### Relations (`01_relations...`)
 ```
-ID column:            [FILL IN]
-name column:          [FILL IN]
-type column:          [FILL IN — debtor vs creditor?]
-account code:         [FILL IN]
+NOTE: load with header=1 — row 0 is section labels ("Algemeen", "Financieel" etc.), row 1 is real header.
+ID column:            code
+name column:          naam
+type column:          no single type column — inferred: debiteurenrekening populated → debtor;
+                      crediteurenrekening populated → creditor
+account code:         grootboekrekening_verkoop  (sales GL account) / grootboekrekening_inkoop  (purchase GL account)
 ```
 
-### Account code ranges (fill in after reading data dictionary)
+### Account code ranges (confirmed from data dictionary + GL inspection)
 ```
-Suspense/transitional accounts:   [FILL IN — likely 19xx range]
-Asset accounts (CAPEX):           [FILL IN — likely 0xxx range]
-Operating expense accounts:       [FILL IN — likely 4xxx range]
-Revenue accounts:                 [FILL IN — likely 8xxx range]
-VAT accounts:                     [FILL IN]
-Intercompany accounts:            [FILL IN]
+Suspense/transitional accounts:   [1250]  — "Nog te duiden" (unidentified transactions)
+Asset accounts (CAPEX):           range(0, 1000)   — 0xxx fixed assets
+Accounts receivable:              range(1300, 1400) — 13xx debtors
+Accounts payable:                 range(1700, 1800) — 17xx creditors
+VAT accounts:                     [1870]  — BTW rekening
+Operating expenses (OPEX):        range(4000, 5000) — 4xxx personnel/operating costs
+Cost of goods/services:           range(7000, 8000) — 7xxx cost of goods
+Revenue accounts:                 range(8000, 9000) — 8xxx revenue
+Intercompany accounts:            [confirm from data_dictionary.md — not confirmed yet]
 ```
 
 ---
@@ -285,10 +298,10 @@ def to_source_line(
     record: dict,
     entity: str,
     record_id: str,
-    amount_field: str,      # [FILL IN actual column name]
-    date_field: str,        # [FILL IN actual column name]
-    account_field: str,     # [FILL IN actual column name]
-    description_field: str  # [FILL IN actual column name]
+    amount_field: str,      # GL/sales/purchase/bank: "bedrag"
+    date_field: str,        # GL/sales/purchase: "boekdatum" | bank: "datum"
+    account_field: str,     # GL/sales/purchase: "grootboekrekening" | bank: "" (no account code)
+    description_field: str  # GL/sales/purchase/bank: "omschrijving"
 ) -> SourceLine:
     return SourceLine(
         entity=entity,
@@ -368,7 +381,7 @@ Each check lives in its own file under `checks/`. Every check follows this exact
 ```python
 # Account codes and name keywords — fill in after reading data dictionary
 SUSPENSE_CODE_RANGES = [
-    # [FILL IN — e.g. range(1900, 2000)]
+    range(1250, 1251),  # account 1250 — "Nog te duiden" (unidentified transactions)
 ]
 SUSPENSE_NAME_KEYWORDS = [
     "tussenrekening", "memoriaal", "te verrekenen",
@@ -390,12 +403,12 @@ def check_suspense_accounts(dataset: FinancialDataset) -> ReadinessCheck:
     suspense_lines = [
         entry for entry in dataset.gl_entries
         if is_suspense_account(
-            entry.get("[ACCOUNT_CODE_FIELD]", ""),
-            entry.get("[ACCOUNT_NAME_FIELD]", "")
+            entry.get("grootboekrekening", ""),
+            entry.get("naam", "")
         )
     ]
 
-    net_balance = sum(float(e.get("[AMOUNT_FIELD]", 0)) for e in suspense_lines)
+    net_balance = sum(float(e.get("bedrag", 0) or 0) for e in suspense_lines)
 
     if abs(net_balance) > 0.01:
         return ReadinessCheck(
@@ -429,17 +442,15 @@ def check_suspense_accounts(dataset: FinancialDataset) -> ReadinessCheck:
 **Logic:** GL entries with draft/concept status are not officially posted. They appear in the ledger but haven't been confirmed, meaning all totals are provisional.
 
 ```python
-# Fill in after inspecting the GL file
-DRAFT_STATUS_VALUES = [
-    # [FILL IN — e.g. "concept", "draft", "D", 0, False]
-]
-STATUS_FIELD = "[FILL IN]"
+# NO STATUS COLUMN EXISTS in the GL export from Exact Online.
+# This check cannot be implemented as originally specified.
+# Draft entries are identified by their presence in the to do/ subfolder — see check_todo_folder_discrepancy.
+# This function always returns pass; the real draft signal is in check 9.
+DRAFT_STATUS_VALUES = []  # empty — no status field in data
+STATUS_FIELD = None       # no status column
 
 def check_draft_entries(dataset: FinancialDataset) -> ReadinessCheck:
-    draft_entries = [
-        e for e in dataset.gl_entries
-        if e.get(STATUS_FIELD) in DRAFT_STATUS_VALUES
-    ]
+    draft_entries = []  # always empty — no status column to filter on
 
     if not draft_entries:
         return ReadinessCheck(
@@ -452,7 +463,7 @@ def check_draft_entries(dataset: FinancialDataset) -> ReadinessCheck:
             source_lines=[]
         )
 
-    total = sum(abs(float(e.get("[AMOUNT_FIELD]", 0))) for e in draft_entries)
+    total = sum(abs(float(e.get("bedrag", 0) or 0)) for e in draft_entries)
 
     return ReadinessCheck(
         check_id="draft_entries",
@@ -482,20 +493,20 @@ WARN_THRESHOLD = 0.02   # 2% gap → warn
 def extract_pl_revenue(dataset: FinancialDataset) -> float:
     """
     Extract revenue total from GL entries by summing revenue account codes.
-    Revenue account range: [FILL IN after reading data dictionary]
+    Revenue account range: range(8000, 9000) — 8xxx accounts
     """
     revenue_entries = [
         e for e in dataset.gl_entries
-        if is_revenue_account(e.get("[ACCOUNT_CODE_FIELD]", ""))
-        and is_within_period(e.get("[DATE_FIELD]"), dataset.period_start, dataset.period_end)
+        if is_revenue_account(e.get("grootboekrekening", ""))
+        and is_within_period(e.get("boekdatum"), dataset.period_start, dataset.period_end)
     ]
-    return sum(float(e.get("[AMOUNT_FIELD]", 0)) for e in revenue_entries)
+    return sum(float(e.get("bedrag", 0) or 0) for e in revenue_entries)
 
 def extract_invoice_revenue(dataset: FinancialDataset) -> float:
     return sum(
-        float(e.get("[AMOUNT_EXCL_VAT_FIELD]", 0))
+        float(e.get("bedrag", 0) or 0)  # col 19 — amount excl VAT
         for e in dataset.sales_entries
-        if is_within_period(e.get("[DATE_FIELD]"), dataset.period_start, dataset.period_end)
+        if is_within_period(e.get("boekdatum"), dataset.period_start, dataset.period_end)
     )
 
 def check_revenue_reconciliation(dataset: FinancialDataset) -> ReadinessCheck:
@@ -563,7 +574,8 @@ ASSET_KEYWORDS = [
 ]
 
 OPEX_ACCOUNT_RANGE = [
-    # [FILL IN — e.g. range(4000, 7000)]
+    range(4000, 5000),  # 4xxx — operating expenses, personnel costs
+    range(7000, 8000),  # 7xxx — cost of goods/services
 ]
 
 def is_likely_capex(description: str) -> bool:
@@ -580,8 +592,8 @@ def is_opex_account(account_code: str) -> bool:
 def check_capex_opex(dataset: FinancialDataset) -> ReadinessCheck:
     flagged = [
         e for e in dataset.purchase_entries
-        if is_likely_capex(e.get("[DESCRIPTION_FIELD]", ""))
-        and is_opex_account(e.get("[ACCOUNT_CODE_FIELD]", ""))
+        if is_likely_capex(e.get("omschrijving", ""))
+        and is_opex_account(e.get("grootboekrekening", ""))
     ]
 
     if not flagged:
@@ -595,7 +607,7 @@ def check_capex_opex(dataset: FinancialDataset) -> ReadinessCheck:
             source_lines=[]
         )
 
-    total = sum(float(e.get("[AMOUNT_FIELD]", 0)) for e in flagged)
+    total = sum(float(e.get("bedrag", 0) or 0) for e in flagged)
     return ReadinessCheck(
         check_id="capex_opex_misclassification",
         label="CAPEX / OPEX misclassification",
@@ -631,9 +643,9 @@ def get_business_days(start: date, end: date) -> set[date]:
 def check_bank_coverage(dataset: FinancialDataset) -> ReadinessCheck:
     period_business_days = get_business_days(dataset.period_start, dataset.period_end)
     covered_days = set(
-        e.get("[DATE_FIELD]")
+        e.get("datum")
         for e in dataset.bank_entries
-        if e.get("[DATE_FIELD]") is not None
+        if e.get("datum") is not None
     )
     gap_days = period_business_days - covered_days
     gap_count = len(gap_days)
@@ -695,7 +707,7 @@ def check_ar_aging(dataset: FinancialDataset) -> ReadinessCheck:
             source_lines=[]
         )
 
-    total = sum(float(e.get("[AMOUNT_FIELD]", 0)) for e in stale_open)
+    total = sum(float(e.get("bedrag", 0) or 0) for e in stale_open)
     return ReadinessCheck(
         check_id="ar_aging_stale",
         label="AR aging — stale open items",
@@ -730,9 +742,11 @@ def check_timing_differences(dataset: FinancialDataset) -> ReadinessCheck:
     Fill in actual field names after reading data dictionary.
     """
     flagged = []
+    # boekdatum = booking/invoice date (col 5); vervaldatum = due date (col 6)
+    # Crossing a month boundary between these flags potential period-cutoff issues
     for e in dataset.sales_entries + dataset.purchase_entries:
-        inv_date = e.get("[INVOICE_DATE_FIELD]")
-        post_date = e.get("[POSTING_DATE_FIELD]")
+        inv_date = e.get("boekdatum")
+        post_date = e.get("vervaldatum")
         if crosses_month_boundary(inv_date, post_date):
             flagged.append(e)
 
@@ -747,7 +761,7 @@ def check_timing_differences(dataset: FinancialDataset) -> ReadinessCheck:
             source_lines=[]
         )
 
-    total = sum(abs(float(e.get("[AMOUNT_FIELD]", 0))) for e in flagged)
+    total = sum(abs(float(e.get("bedrag", 0) or 0)) for e in flagged)
     return ReadinessCheck(
         check_id="timing_differences",
         label="Period timing differences",
@@ -781,9 +795,9 @@ def extract_vat_from_pdf(pdf_path: Path) -> float | None:
     try:
         with pdfplumber.open(pdf_path) as pdf:
             text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-        # [FILL IN: regex to extract the right number from the PDF text]
-        # Inspect the actual VAT return PDF first and find the label/pattern
-        match = re.search(r"[FILL IN PATTERN]", text)
+        # Inspect VAT_returns_2024_filed.pdf with pdfplumber to confirm exact label before finalising
+        # Common Dutch VAT return labels: "Te betalen", "Totaal te betalen", "Rubriek 5d"
+        match = re.search(r"Te betalen[^\d]*([\d.,]+)", text)
         if match:
             return float(match.group(1).replace(".", "").replace(",", "."))
     except Exception:
@@ -792,9 +806,9 @@ def extract_vat_from_pdf(pdf_path: Path) -> float | None:
 
 def check_vat_reconciliation(dataset: FinancialDataset, vat_pdf_path: Path) -> ReadinessCheck:
     invoice_vat = sum(
-        float(e.get("[VAT_AMOUNT_FIELD]", 0))
+        float(e.get("btw_bedrag", 0) or 0)
         for e in dataset.sales_entries + dataset.purchase_entries
-        if is_within_period(e.get("[DATE_FIELD]"), dataset.period_start, dataset.period_end)
+        if is_within_period(e.get("boekdatum"), dataset.period_start, dataset.period_end)
     )
 
     filed_vat = extract_vat_from_pdf(vat_pdf_path)

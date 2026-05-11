@@ -128,20 +128,23 @@ async def load_all(data_folder: Path, period_start: date, period_end: date) -> F
     # Bank to-do copy — combined 2024+2025, used for discrepancy check only
     bank_todo = _load_excel(todo_folder / "06_bank_cash_entries_2024en2025_import - kopie.xlsx")
 
-    # Relations — data is on the input sheet, not the first sheet
+    # Relations — row 0 is section labels, row 1 is the real header
     relations = _load_excel(
         main_folder / "01_relations_debtors_creditors_import.xlsx",
         sheet_name="Invoerblad relaties",
+        header=1,
     )
     relations_daughter = _load_excel(
         todo_folder / "01_relations_debtors_creditors_import_daughter.xlsx",
         sheet_name="Invoerblad relaties",
+        header=1,
     )
 
-    # Opening balances — data is on the input sheet
+    # Opening balances — row 0 is section labels, row 1 is the real header
     opening_balances = _load_excel(
         todo_folder / "02_opening_balance_2024_01_01_import.xlsx",
         sheet_name="Invoerblad beginbalans en opens",
+        header=1,
     )
 
     # Asset register — external, maintained outside Exact Online
