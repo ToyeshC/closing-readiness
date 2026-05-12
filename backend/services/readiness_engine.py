@@ -1,12 +1,15 @@
 from backend.models import DataReadinessReport, FinancialDataset, ReadinessCheck
 from backend.services.checks import (
+    ap_aging,
     ar_aging,
     bank_coverage,
     capex_opex,
+    cit_preliminary_deviation,
     revenue_reconciliation,
     suspense,
     timing_differences,
     todo_discrepancy,
+    vat_provisional_correction,
     vat_reconciliation,
 )
 
@@ -25,6 +28,9 @@ class ReadinessEngine:
             ar_aging.check(self.dataset),
             timing_differences.check(self.dataset),
             vat_reconciliation.check(self.dataset),
+            cit_preliminary_deviation.check(self.dataset),
+            vat_provisional_correction.check(self.dataset),
+            ap_aging.check(self.dataset),
         ]
         score, advice_ready = _score(checks)
         return DataReadinessReport(

@@ -3,7 +3,7 @@
 Closing-readiness + data quality engine for Fietsatelier Morgenwind BV (Dutch bicycle workshop). Responsible AI demo: system refuses to call Claude if data is dirty.
 
 ## Team split
-- **Toyesh:** data ingestion (`data_loader.py`), normalization (`normalizer.py`), readiness engine (`readiness_engine.py`), 9 check modules, tests
+- **Toyesh:** data ingestion (`data_loader.py`), normalization (`normalizer.py`), readiness engine (`readiness_engine.py`), 11 check modules, tests
 - **Emma:** FastAPI routes, Anthropic API calls, Next.js frontend
 - **Shared:** `models.py` — never change unilaterally; coordinate with partner first
 
@@ -62,5 +62,10 @@ Account code ranges: `0xxx`=CAPEX, `1250`=suspense/clearing ("Nog te duiden"), `
 | `ar_aging_stale` | medium | open receivables >90 days |
 | `timing_differences` | medium | GL `periode` ≠ `boekdatum.month` |
 | `vat_reconciliation` | medium | GL VAT ≠ PDF total >1% |
+| `cit_preliminary_deviation` | medium | provisional CIT ≠ final assessment >10% |
+| `vat_provisional_correction` | medium | multiple VAT payments per quarter in tax schedule |
+| `ap_aging_stale` | medium | open payables >90 days |
 
 Note: `draft_entries` does NOT exist — dropped Day 1 (no status column in data). `todo_discrepancy` is its replacement. Tell Emma to remove `draft_entries` from her frontend.
+
+Day 3 additions (3 new checks): `cit_preliminary_deviation`, `vat_provisional_correction`, `ap_aging_stale` — added based on organiser email hints about CIT/VAT provisional filings and AP aging. Emma needs frontend cards for all three.

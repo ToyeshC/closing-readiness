@@ -1,33 +1,51 @@
 SESSION HANDOFF — Toyesh to Emma
-Date: 12 May 2026 (Day 2)
-Branch: toyesh (being pushed to main — pull before you start)
+Date: 12 May 2026 (Day 2 + Day 3, same session)
+Branch: toyesh → merge to main before starting
 
 ════════════════════════════════════════════════════════════
-HEADLINE: The harness engine is done. Your API routes will work
-once you pull main.
+HEADLINE: The harness engine is done AND extended.
+11 checks, score 30%. New finding: €45,412 in overdue payables.
+Pull main, fix your 3 outstanding issues, then build the frontend.
 ════════════════════════════════════════════════════════════
 
 
-── WHAT TOYESH BUILT TODAY ──────────────────────────────────
+── WHAT TOYESH BUILT ────────────────────────────────────────
 
-backend/services/normalizer.py       Converts raw dicts → SourceLine objects
-backend/services/readiness_engine.py  ReadinessEngine(dataset).run() → DataReadinessReport
-backend/services/checks/suspense.py  Account 1250 — BLOCKER
-backend/services/checks/todo_discrepancy.py
-backend/services/checks/revenue_reconciliation.py
-backend/services/checks/capex_opex.py
-backend/services/checks/bank_coverage.py
-backend/services/checks/ar_aging.py
-backend/services/checks/timing_differences.py
-backend/services/checks/vat_reconciliation.py
-README.md                            Project overview + how to run
+Day 2:
+  backend/services/normalizer.py         Raw dicts → SourceLine objects
+  backend/services/readiness_engine.py   ReadinessEngine(dataset).run() → DataReadinessReport
+  backend/services/checks/suspense.py    Account 1250 — BLOCKER
+  backend/services/checks/todo_discrepancy.py
+  backend/services/checks/revenue_reconciliation.py
+  backend/services/checks/capex_opex.py
+  backend/services/checks/bank_coverage.py
+  backend/services/checks/ar_aging.py
+  backend/services/checks/timing_differences.py
+  backend/services/checks/vat_reconciliation.py
 
-Your analyze.py already calls these correctly. Just pull main.
+Day 3 (same session, already on main):
+  backend/services/checks/cit_preliminary_deviation.py
+    Extracts CIT liability from provisional + final PDF using pdfplumber.
+    Warns if >10% gap, fails if >25%. PASS on this data (both PDFs: €96,365.31).
+
+  backend/services/checks/vat_provisional_correction.py
+    Counts VAT payment rows per quarter in tax_payment_schedule.csv.
+    Multiple payments for same quarter = supplementary/correction filing signal.
+    PASS on this data (clean quarterly filings, one payment per quarter).
+
+  backend/services/checks/ap_aging.py
+    Mirrors AR aging for payables: matches purchase entries to outgoing bank entries.
+    FAIL: €45,412.53 — 26 supplier invoices unpaid >90 days. Real finding.
+
+  INFO/decisions.md   All non-obvious design choices documented (for judges)
+  .env.example        ANTHROPIC_API_KEY, FRONTEND_URL, DATA_FOLDER
+  railway.toml        Railway deployment config (backend ready to deploy)
+  Procfile            Fallback start command for Railway
 
 
 ── LIVE ENGINE OUTPUT AGAINST REAL DATA ────────────────────
 
-Score: 40% | Advice ready: False
+Score: 30% | Advice ready: False | Checks: 11
 
 [BLOCKER] Suspense account balance      €39,893.52  (8 source lines)
 [FAIL   ] Unimported file discrepancies            (1,239 records pending)
@@ -37,8 +55,13 @@ Score: 40% | Advice ready: False
 [FAIL   ] Accounts receivable aging     €39,703.64  (14 overdue invoices)
 [PASS   ] Timing differences
 [PASS   ] VAT reconciliation                       (quarterly totals matched from PDF)
+[PASS   ] CIT preliminary deviation                (provisional = final = €96,365.31)
+[PASS   ] VAT provisional corrections              (no correction payments detected)
+[FAIL   ] Accounts payable aging        €45,412.53  (26 overdue payables) ← NEW
 
 advice_ready=False because of suspense blocker → your blocked_reason path fires correctly.
+Score dropped from 40% → 30% because ap_aging_stale is a new medium fail (-0.10 penalty).
+This is correct — the engine found more real issues.
 
 
 ── YOUR CODE IS CORRECT ─────────────────────────────────────
@@ -48,101 +71,125 @@ analyze.py:    period_start / period_end defaults (2024-01-01 / 2024-12-31) work
 schemas.py:    AnalysisResult, AdvisoryOutput shapes match what the engine returns ✓
 
 
-── ONE FIX NEEDED IN YOUR CODE ──────────────────────────────
+── FIXES STILL NEEDED IN YOUR CODE ─────────────────────────
 
-reasoning.py line: model="claude-sonnet-4-20250514"
-That model ID follows the old Claude 3 naming convention and will fail.
+1. reasoning.py: model="claude-sonnet-4-20250514" → model="claude-sonnet-4-6"
+   That model ID is the old Claude 3 naming convention and will 500 on the Claude call.
+   This only fires when advice_ready=True (which won't happen with current data),
+   but judges may ask "what if the data were clean?" — fix it now.
 
-Change to: model="claude-sonnet-4-6"
+2. Data leak: "00 Dataroom hackathon/" is still tracked in your git history.
+   Run before pushing:
+     git rm -r --cached "00 Dataroom hackathon/"
+     git add .gitignore
+     git commit -m "untrack data folder from git"
 
-That's the current Claude Sonnet 4. Double-check in your Claude Code session
-by asking: "what is the correct model ID for Claude Sonnet 4?"
-
-
-── CRITICAL: CHECK IDs — 8 CHECKS, NOT 9 ───────────────────
-
-Your partner_knowledge_base.md and emma_spec.md list "draft_entries" as a check_id.
-That check was DROPPED on Day 1 — there is no status column in the export files.
-
-The replacement is "todo_discrepancy" — already in your list.
-
-Remove "draft_entries" from your frontend wherever you reference it.
-The 8 real check_ids are:
-  suspense_account_balance
-  todo_discrepancy
-  revenue_reconciliation
-  capex_opex_misclassification
-  bank_statement_coverage
-  ar_aging_stale
-  timing_differences
-  vat_reconciliation
+3. CLAUDE.md conflict: when you merge emma → main, take Toyesh's version.
+   His CLAUDE.md has the Dutch column reference table, all 11 check_ids, and loading quirks.
 
 
-── URGENT: DATA LEAK ON YOUR BRANCH ─────────────────────────
+── CRITICAL: CHECK IDs — NOW 11 CHECKS ─────────────────────
 
-Your .gitignore has "00 Dataroom hackathon/" but the files are already tracked
-by git (they were committed before the .gitignore entry). .gitignore has no
-effect on already-tracked files.
+Three new check_ids were added in Day 3. You need a frontend card for each:
 
-Run these commands NOW before pushing anything:
+  suspense_account_balance    (blocker) — already in your spec
+  todo_discrepancy            (high)    — already in your spec
+  revenue_reconciliation      (high)    — already in your spec
+  capex_opex_misclassification (medium) — already in your spec
+  bank_statement_coverage     (medium)  — already in your spec
+  ar_aging_stale              (medium)  — already in your spec
+  timing_differences          (medium)  — already in your spec
+  vat_reconciliation          (medium)  — already in your spec
+  cit_preliminary_deviation   (medium)  ← NEW Day 3
+  vat_provisional_correction  (medium)  ← NEW Day 3
+  ap_aging_stale              (medium)  ← NEW Day 3
 
-  git rm -r --cached "00 Dataroom hackathon/"
-  git rm --cached .DS_Store
-  echo "**/.DS_Store" >> .gitignore
-  git add .gitignore
-  git commit -m "untrack data folder and DS_Store from git"
-
-This removes the files from git history going forward (existing history still
-has them — don't share the repo externally until after the hackathon).
-
-
-── CLAUDE.md CONFLICT ON MERGE ──────────────────────────────
-
-You created a CLAUDE.md on your branch. Toyesh also created one on main.
-When you merge emma → main, there will be a conflict on this file.
-
-Resolution: take Toyesh's version. His CLAUDE.md has the Dutch column name
-reference table, check_ids, branch rules, and loading quirks all in one place.
-Your CLAUDE.md is a subset of his.
+Note: draft_entries does NOT exist — dropped Day 1. Remove it from your frontend.
 
 
-── REPO STATE AFTER TOYESH PUSHES TO MAIN ───────────────────
+── QUICK VERIFICATION AFTER PULLING ─────────────────────────
 
-Pull main before starting:
+Run this from the project root to confirm the engine works:
+
+  python3 -c "
+  import asyncio
+  from pathlib import Path
+  from datetime import date
+  from backend.services.data_loader import load_all
+  from backend.services.readiness_engine import ReadinessEngine
+
+  async def main():
+      ds = await load_all(Path('00 Dataroom hackathon'), date(2024,1,1), date(2024,12,31))
+      r = ReadinessEngine(ds).run()
+      print(f'Score: {r.overall_score:.0%} | Advice ready: {r.advice_ready} | Checks: {len(r.checks)}')
+      for c in r.checks:
+          print(f'  [{c.status:7}] {c.check_id}')
+  asyncio.run(main())
+  "
+
+Expected: Score 30%, Advice ready: False, 11 checks listed, ap_aging_stale FAIL.
+
+
+── REPO STATE — WHAT TO PULL ─────────────────────────────────
+
   git fetch origin
   git merge origin/main
 
 New files you'll get:
-  backend/services/normalizer.py
-  backend/services/readiness_engine.py
-  backend/services/checks/ (8 modules)
-  README.md
-  CLAUDE.md (updated with check_ids table)
-  .gitignore (updated with .DS_Store rule)
+  backend/services/checks/ (11 modules — 3 new: cit_preliminary_deviation, vat_provisional_correction, ap_aging.py)
+  INFO/decisions.md          (architectural decisions for judges)
+  INFO/day2_summary.txt      (moved from root)
+  INFO/harness_engine_spec.md (moved from root)
+  .env.example               (env var reference)
+  railway.toml + Procfile    (Railway deployment config)
+  README.md (updated)
+  CLAUDE.md (updated — 11 checks table)
 
 
-── YOUR DAY 2 TASKS ─────────────────────────────────────────
+── DEPLOYMENT ────────────────────────────────────────────────
 
-1. Fix model ID in reasoning.py (see above)
-2. Untrack data files (git rm -r --cached — see above)
-3. Pull main
-4. Run: uvicorn backend_FastAPI_emma.main:app --reload
-5. Test POST /api/v1/readiness → should return 40% score, advice_ready=false
-6. Build the 3 frontend screens (see emma_spec.md for full spec):
-     Screen 1: Connect / trigger readiness check
-     Screen 2: Report grid — 8 check cards with status icons + "Show source" button
-     Screen 3: Advisory outputs — only reachable if advice_ready=true
-7. Wire "Show source" to GET /api/v1/readiness/{check_id}/sources
-   (This is the judge's key moment — show raw Dutch GL rows)
+Backend goes to Railway (€25 credit — use it here, not Vercel).
+Frontend goes to Vercel (free tier for Next.js).
 
-For Screen 2, the source lines on the suspense check have 8 GL entries
-with account 1250 and amounts — that's what the judges need to see.
+Railway deploy (run after both branches are on main):
+  railway login   # if needed
+  railway up
+  railway variables set ANTHROPIC_API_KEY=sk-ant-... FRONTEND_URL=https://your-vercel-url.vercel.app
+
+GET /health will return {"status": "ok"}.
+POST /readiness will return 500 — no data files on Railway. That's expected and documented.
+The demo runs locally where the data folder exists.
+
+Vercel deploy (run from frontend/ when you have ≥1 screen):
+  vercel --prod
+
+
+── YOUR TASKS FOR DAY 3 ─────────────────────────────────────
+
+Priority 1 — Fix your code first (before anything else):
+  1. Fix model ID in reasoning.py (see above)
+  2. Untrack data files (git rm -r --cached — see above)
+  3. Pull main
+
+Priority 2 — Build the 3 frontend screens:
+  Screen 1: Connect / date picker / trigger readiness check
+  Screen 2: Report grid — 11 check cards with status icons + "Show source" button
+             (suspense check has 8 GL source lines — that's the judge's "aha" moment)
+             (ap_aging check has 26 source lines — €45,412 overdue, secondary highlight)
+  Screen 3: Advisory outputs — only reachable when advice_ready=True
+
+  Wire "Show source" to GET /api/v1/readiness/{check_id}/sources
+  The 11 check_ids above are the exact strings to use.
+
+Priority 3 — Deploy:
+  4. Deploy backend to Railway (see above)
+  5. Deploy frontend to Vercel when Screen 1 is done
 
 
 ── CONTEXT FOR YOUR CLAUDE CODE SESSION ─────────────────────
 
-Your session can read CLAUDE.md (in project root) for all project context.
-Dutch column names, branch rules, team split, and key invariants are all there.
+Read CLAUDE.md (in project root) for Dutch column names, check_ids, branch rules, and all
+loading quirks. Read INFO/decisions.md for the reasoning behind non-obvious choices.
 
-To start your session you can just say:
-"Day 2 — build the 3 frontend screens. Engine is live. See CLAUDE.md."
+To start your session:
+"Day 3 — build 3 frontend screens. Engine has 11 checks, score 30%. See CLAUDE.md."
