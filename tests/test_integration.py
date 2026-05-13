@@ -6,6 +6,7 @@ from datetime import date
 import pytest
 
 from backend.services.data_loader import load_all
+from backend.services.financial_ratios import compute_ratios
 
 DATA_FOLDER = Path(__file__).parent.parent / "00 Dataroom hackathon"
 PERIOD_START = date(2024, 1, 1)
@@ -72,3 +73,44 @@ def test_todo_discrepancies_captured(dataset):
 def test_period_fields_set(dataset):
     assert dataset.period_start == PERIOD_START
     assert dataset.period_end == PERIOD_END
+
+
+@pytest.fixture(scope="module")
+def ratios(dataset):
+    return compute_ratios(dataset)
+
+
+def test_financial_ratios_computed(ratios):
+    assert ratios is not None
+
+
+def test_dso_in_plausible_range(ratios):
+    assert ratios.dso_days.value is not None, "DSO should be computable from this dataset"
+    assert 10 <= ratios.dso_days.value <= 90, (
+        f"DSO {ratios.dso_days.value:.1f} days outside plausible range for Dutch SME"
+    )
+
+
+def test_dpo_in_plausible_range(ratios):
+    assert ratios.dpo_days.value is not None, "DPO should be computable from this dataset"
+    assert 30 <= ratios.dpo_days.value <= 200, (
+        f"DPO {ratios.dpo_days.value:.1f} days outside plausible range"
+    )
+
+
+def test_working_capital_known_value(ratios):
+    assert ratios.working_capital.value is not None
+    assert abs(ratios.working_capital.value - 26_483.04) < 100, (
+        f"Working capital {ratios.working_capital.value:.2f} drifted from known value €26,483.04"
+    )
+
+
+def test_revenue_period_positive(ratios):
+    assert ratios.revenue_period.value is not None
+    assert ratios.revenue_period.value > 0, "Revenue should be positive in this dataset"
+    assert ratios.revenue_period.reliable is True
+
+
+def test_open_ar_reliable(ratios):
+    assert ratios.open_ar.reliable is True
+    assert ratios.open_ar.value is not None and ratios.open_ar.value > 0

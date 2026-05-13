@@ -10,13 +10,13 @@ Financial data quality gate for Dutch SME closing. Ingests raw bookkeeping expor
 00 Dataroom hackathon/   (local only — never commit)
         │
         ▼
-backend/services/data_loader.py     loads all Excel/CSV/PDF files → FinancialDataset
+backend/services/data_loader.py     loads Excel/CSV/PDF files (or Exact Online API) → FinancialDataset
         │
         ▼
-backend/services/readiness_engine.py  runs 11 deterministic checks → DataReadinessReport
+backend/services/readiness_engine.py  runs 11 checks + financial ratios → DataReadinessReport
         │
-        ├─ advice_ready = False → block Claude, show blocker reason
-        └─ advice_ready = True  → POST to Claude Sonnet → financial advice
+        ├─ advice_ready = False → Claude guided-diagnosis (explains what to fix, not a hard block)
+        └─ advice_ready = True  → Claude Sonnet advisory + market comparison
         │
         ▼
 backend_FastAPI_emma/               FastAPI routes (Emma)
@@ -87,7 +87,14 @@ Local files only — not in git. Folder: `00 Dataroom hackathon/` (Fietsatelier 
 - **DATA_FOLDER on Railway**: `POST /readiness` requires local data files (`00 Dataroom hackathon/`). These are gitignored (financial client data). Override with `DATA_FOLDER=/abs/path` env var. Railway deployment shows a healthy `/health` endpoint but `POST /readiness` requires the data folder to be present.
 - **VAT PDF path**: `vat_reconciliation.py` and `cit_preliminary_deviation.py` resolve PDFs relative to the file's location (`__file__.parents[3]`). Will fail silently if the package is installed outside the repo root.
 - **Demo script**: 7-step judge walk-through not yet written.
-- **Exact Online OAuth**: `/auth/callback` not implemented. Production stretch goal only.
+
+## Waiting On External Dependencies
+
+- **Exact Online OAuth credentials**: Organiser will provide `client_id` + `client_secret` once redirect URL is registered. Redirect URL ready: `https://unwired-sweep-apostle.ngrok-free.dev/auth/exact/callback`. Once received: wire `load_all_from_exact()` in `data_loader.py` (scaffold already written) and add auth endpoints to Emma's FastAPI.
+- **`todo_discrepancy` check redesign**: Current check compares local "to do/" folder files against main folder. Once Exact Online API is live, concept changes entirely — to-do items exist natively in Exact Online. Check needs rethinking post-API.
+- **Suspense entry reasons**: Exact Online stores a reason/description on suspense entries. Once API is connected, surface these in `source_lines` panel so users see *why* an entry is in 1250, not just that it is.
+- **Emma's frontend**: `AnalysisResult` schema needs `ratios: FinancialRatios` field exposed; 3 new check cards needed (`cit_preliminary_deviation`, `vat_provisional_correction`, `ap_aging_stale`); guided-diagnosis response wiring needed.
+- **LangWatch instrumentation**: 3-line addition to Emma's `reasoning.py` — see handoff for copy-paste snippet. Enables live trace dashboard for demo.
 
 ## Hackathon
 

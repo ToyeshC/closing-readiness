@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 from datetime import date
 
+import httpx
 import pandas as pd
 
 from backend.models import FinancialDataset
@@ -202,4 +203,207 @@ async def load_all(data_folder: Path, period_start: date, period_end: date) -> F
         items=items,
         item_groups=item_groups,
         todo_discrepancies=discrepancies,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Exact Online API loader
+# ---------------------------------------------------------------------------
+
+_EXACT_BASE = "https://start.exactonline.nl/api/v1"
+
+
+def _exact_headers(access_token: str) -> dict:
+    return {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+
+
+async def _exact_get_all(client: httpx.AsyncClient, url: str, headers: dict) -> list[dict]:
+    """Fetch all pages from an Exact Online OData endpoint (follows @odata.nextLink)."""
+    results: list[dict] = []
+    next_url: str | None = url
+    while next_url:
+        resp = await client.get(next_url, headers=headers, timeout=30.0)
+        resp.raise_for_status()
+        body = resp.json()
+        results.extend(body.get("d", {}).get("results", []))
+        next_url = body.get("d", {}).get("__next")
+    return results
+
+
+async def load_all_from_exact(
+    access_token: str,
+    division_id: int,
+    period_start: date,
+    period_end: date,
+) -> FinancialDataset:
+    """
+    Load FinancialDataset from Exact Online REST API.
+
+    Field mapping (Exact Online JSON → Dutch column names all checks expect):
+      TransactionLines.Date          → boekdatum
+      TransactionLines.AmountDC      → bedrag
+      TransactionLines.GLAccountCode → grootboekrekening
+      TransactionLines.Description   → omschrijving
+      TransactionLines.EntryNumber   → boekstuknummer
+      TransactionLines.FinancialPeriod → periode
+      SalesInvoices.InvoiceDate      → boekdatum
+      SalesInvoices.AmountDC         → bedrag
+      SalesInvoices.DebtorCode       → code
+      SalesInvoices.DebtorName       → naam
+      PurchaseEntries.EntryDate      → boekdatum
+      PurchaseEntries.AmountDC       → bedrag
+      PurchaseEntries.SupplierCode   → code
+      PurchaseEntries.SupplierName   → naam
+    """
+    base = f"{_EXACT_BASE}/{division_id}"
+    hdrs = _exact_headers(access_token)
+    # OData datetime filter — Exact Online uses /Date(ms)/ but accepts ISO in $filter
+    d_filter = (
+        f"Date ge datetime'{period_start.isoformat()}T00:00:00'"
+        f" and Date le datetime'{period_end.isoformat()}T23:59:59'"
+    )
+
+    async with httpx.AsyncClient() as client:
+        # GL entries — all transaction lines in period
+        gl_raw = await _exact_get_all(
+            client,
+            f"{base}/financials/TransactionLines"
+            f"?$filter={d_filter}"
+            "&$select=EntryNumber,Date,AmountDC,GLAccountCode,Description,FinancialPeriod",
+            hdrs,
+        )
+        gl_entries = [
+            {
+                "boekstuknummer": r.get("EntryNumber"),
+                "boekdatum": r.get("Date"),
+                "bedrag": r.get("AmountDC"),
+                "grootboekrekening": r.get("GLAccountCode"),
+                "omschrijving": r.get("Description"),
+                "periode": r.get("FinancialPeriod"),
+            }
+            for r in gl_raw
+        ]
+
+        # Sales invoices
+        sales_raw = await _exact_get_all(
+            client,
+            f"{base}/salesinvoice/SalesInvoices"
+            f"?$filter=InvoiceDate ge datetime'{period_start.isoformat()}T00:00:00'"
+            f" and InvoiceDate le datetime'{period_end.isoformat()}T23:59:59'"
+            "&$select=EntryNumber,InvoiceDate,AmountDC,DebtorCode,DebtorName,Description,DueDate,YourRef",
+            hdrs,
+        )
+        sales_entries = [
+            {
+                "boekstuknummer": r.get("EntryNumber"),
+                "boekdatum": r.get("InvoiceDate"),
+                "bedrag": r.get("AmountDC"),
+                "code": r.get("DebtorCode"),
+                "naam": r.get("DebtorName"),
+                "omschrijving": r.get("Description"),
+                "vervaldatum": r.get("DueDate"),
+                "uw_ref": r.get("YourRef"),
+                "grootboekrekening": "1300",  # AR account — debtor invoices always 1300
+            }
+            for r in sales_raw
+        ]
+
+        # Purchase entries
+        purch_raw = await _exact_get_all(
+            client,
+            f"{base}/purchaseentry/PurchaseEntries"
+            f"?$filter=EntryDate ge datetime'{period_start.isoformat()}T00:00:00'"
+            f" and EntryDate le datetime'{period_end.isoformat()}T23:59:59'"
+            "&$select=EntryNumber,EntryDate,AmountDC,SupplierCode,SupplierName,Description,DueDate,YourRef",
+            hdrs,
+        )
+        purchase_entries = [
+            {
+                "boekstuknummer": r.get("EntryNumber"),
+                "boekdatum": r.get("EntryDate"),
+                "bedrag": r.get("AmountDC"),
+                "code": r.get("SupplierCode"),
+                "naam": r.get("SupplierName"),
+                "omschrijving": r.get("Description"),
+                "vervaldatum": r.get("DueDate"),
+                "uw_ref": r.get("YourRef"),
+                "grootboekrekening": "1700",  # AP account — creditor invoices always 1700
+            }
+            for r in purch_raw
+        ]
+
+        # Bank entries — TransactionLines for bank (12) and cash (22) journals
+        # TODO: verify JournalType codes with organiser against actual division data
+        bank_raw = await _exact_get_all(
+            client,
+            f"{base}/financials/TransactionLines"
+            f"?$filter={d_filter} and (JournalType eq 12 or JournalType eq 22)"
+            "&$select=EntryNumber,Date,AmountDC,AccountName,Description",
+            hdrs,
+        )
+        bank_entries = [
+            {
+                "datum": r.get("Date"),
+                "bedrag": r.get("AmountDC"),
+                "naam": r.get("AccountName"),
+                "omschrijving": r.get("Description"),
+                "boekstuknummer": r.get("EntryNumber"),
+            }
+            for r in bank_raw
+        ]
+
+        # Opening balances — FinancialPeriod 0 = opening journal entries
+        opening_raw = await _exact_get_all(
+            client,
+            f"{base}/financials/TransactionLines"
+            "?$filter=FinancialPeriod eq 0"
+            "&$select=EntryNumber,Date,AmountDC,GLAccountCode,Description",
+            hdrs,
+        )
+        opening_balances = [
+            {
+                "boekstuknummer": r.get("EntryNumber"),
+                "boekdatum": r.get("Date"),
+                "bedrag": r.get("AmountDC"),
+                "grootboekrekening": r.get("GLAccountCode"),
+                "omschrijving": r.get("Description"),
+            }
+            for r in opening_raw
+        ]
+
+        # Relations
+        relations_raw = await _exact_get_all(
+            client,
+            f"{base}/crm/Accounts"
+            "?$select=Code,Name,AccountManagerName,Email,Phone,City",
+            hdrs,
+        )
+        relations = [
+            {
+                "code": r.get("Code"),
+                "naam": r.get("Name"),
+                "account_manager": r.get("AccountManagerName"),
+                "email": r.get("Email"),
+            }
+            for r in relations_raw
+        ]
+
+    # asset_register, intercompany, tax_schedule have no Exact Online equivalent yet.
+    # TODO: confirm with organiser whether these exist elsewhere in Exact Online.
+    # todo_discrepancies concept changes entirely once API is live — see README.
+    return FinancialDataset(
+        period_start=period_start,
+        period_end=period_end,
+        gl_entries=gl_entries,
+        opening_balances=opening_balances,
+        sales_entries=sales_entries,
+        purchase_entries=purchase_entries,
+        bank_entries=bank_entries,
+        relations=relations,
+        asset_register=[],
+        intercompany=[],
+        tax_schedule=[],
+        items=[],
+        item_groups=[],
+        todo_discrepancies=[],
     )

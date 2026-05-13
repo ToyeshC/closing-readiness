@@ -3,8 +3,8 @@
 Closing-readiness + data quality engine for Fietsatelier Morgenwind BV (Dutch bicycle workshop). Responsible AI demo: system refuses to call Claude if data is dirty.
 
 ## Team split
-- **Toyesh:** data ingestion (`data_loader.py`), normalization (`normalizer.py`), readiness engine (`readiness_engine.py`), 11 check modules, tests
-- **Emma:** FastAPI routes, Anthropic API calls, Next.js frontend
+- **Toyesh:** data ingestion (`data_loader.py`, `load_all_from_exact()`), normalization (`normalizer.py`), readiness engine (`readiness_engine.py`), 11 check modules, financial ratios (`financial_ratios.py`), tests
+- **Emma:** FastAPI routes (`backend_FastAPI_emma/`), Anthropic API calls (`reasoning.py`), Next.js frontend
 - **Shared:** `models.py` — never change unilaterally; coordinate with partner first
 
 ## Branch workflow
@@ -15,7 +15,8 @@ Closing-readiness + data quality engine for Fietsatelier Morgenwind BV (Dutch bi
 
 ## Data
 - Local files in `00 Dataroom hackathon/` — NEVER push to git (financial client data, already in .gitignore)
-- Exact Online API = production stretch goal only; demo uses local files
+- Exact Online API = Day 4/5 integration target; local files remain fallback for demo
+- OAuth redirect: `https://unwired-sweep-apostle.ngrok-free.dev/auth/exact/callback` (ngrok static domain)
 
 ## Test command
 ```
@@ -23,9 +24,11 @@ pytest tests/test_integration.py -v
 ```
 
 ## Key invariants
-- `advice_ready: bool` on `DataReadinessReport` gates all Claude API calls — if False, no AI advice
+- `advice_ready: bool` on `DataReadinessReport` gates advisory Claude calls — if False, call guided-diagnosis Claude instead (not a hard block)
 - Any check with `severity="blocker"` → `advice_ready = False`
 - Scoring: `1.0 - penalties`; high=0.20, medium=0.10, low=0.03; ready at score ≥ 0.6
+- `DataReadinessReport.ratios: FinancialRatios | None` — always populated from `financial_ratios.py`; fields: `dso_days`, `dpo_days`, `working_capital`, `revenue_period`, `purchases_period`, `open_ar`, `open_ap`; each is a `RatioResult(value, reliable, note)`
+- Emma's `AnalysisResult` schema must expose `ratios` to the frontend — coordinate on field naming
 
 ## Dutch column names (confirmed from actual files)
 | File type | Column | Meaning |
