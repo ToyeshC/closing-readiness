@@ -8,6 +8,14 @@ from backend.models import SourceLine
 def _to_date(val) -> date:
     if val is None:
         return date(2000, 1, 1)
+    # Exact Online returns /Date(milliseconds)/ — pandas can't parse this natively
+    if isinstance(val, str) and val.startswith("/Date("):
+        try:
+            from datetime import datetime, timezone
+            ms = int(val[6:].split(")")[0].split("+")[0].split("-")[0])
+            return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).date()
+        except Exception:
+            return date(2000, 1, 1)
     try:
         ts = pd.Timestamp(val)
         return ts.date() if not pd.isna(ts) else date(2000, 1, 1)

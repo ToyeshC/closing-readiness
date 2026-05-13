@@ -1,0 +1,180 @@
+TOYESH → EMMA HANDOFF — 2026-05-14 (Day 5 — FINAL DAY)
+========================================================
+
+HEADLINE: Toyesh's engine is 100% complete. OAuth is live and tested (division 4453885).
+You need to merge, deploy to Railway/Vercel, and wire the frontend today. Demo is at 15:00.
+
+NOTE: This replaces the 2026-05-13 handoff. All snippets from that handoff still apply —
+read guided-diagnosis snippet [1] especially if you haven't wired it yet.
+Day 3 context is still in INFO/toyesh_session_handoff_2026-05-12.txt.
+
+
+WHAT TOYESH BUILT TODAY (Day 5):
+---------------------------------
+- OAuth flow WORKING: GET /auth/exact/redirect → Exact Online login → callback stores tokens
+  Division ID confirmed: 4453885. Token stored in oauth_tokens.db (gitignored).
+  Auth router: backend/routers/auth_exact.py — endpoints at /auth/exact/{redirect,callback,status}
+
+- todo_discrepancy check REMOVED: was a local-filesystem concept with no Exact Online
+  equivalent. Remove it from your frontend too — the check_id no longer exists.
+  Also remove draft_entries from your frontend (was never in engine — no status column in GL data).
+
+- score_after_fix field on ReadinessCheck: each failing check now shows what the
+  overall_score would be if that check passed. Blockers get score_after_fix=None
+  (they gate advice_ready, not the numeric score).
+  Display as: "Fix this → score goes to {score_after_fix:.0%}"
+  For blockers: "Fix this → unlocks advisory"
+
+- gross_profit_margin added to FinancialRatios: reliable=False on this dataset
+  (COGS from GL 7xxx is €0 — will populate once data fully imports)
+
+- Exact Online API fully wired: correct endpoint paths, date parsing fixed,
+  graceful fallbacks. Engine runs cleanly on live data.
+
+- 21 passing tests. All engine work done.
+
+
+LIVE EXACT ONLINE RESULTS (for your demo numbers):
+----------------------------------------------------
+Score: 40% | Advice ready: False (suspense blocker fires)
+
+  [BLOCKER] suspense_account_balance → unlocks advisory
+  [FAIL   ] revenue_reconciliation   → fix: 60%
+  [FAIL   ] capex_opex_misclassification → fix: 50%
+  [WARN   ] bank_statement_coverage  → fix: 50%
+  [FAIL   ] ar_aging_stale           → fix: 50%
+  [PASS   ] timing_differences
+  [FAIL   ] vat_reconciliation       → fix: 50%
+  [PASS   ] cit_preliminary_deviation
+  [PASS   ] vat_provisional_correction
+  [PASS   ] ap_aging_stale
+
+Ratios:
+  DSO: 46.7 days
+  DPO: 365 days (NOTE: inflated — purchase entries lack due dates in API. Present as
+       "DPO data needs verification" not as a hard fact)
+  Revenue: €1,112,173
+  Gross margin: 91.8%
+  Working capital: €141,547
+
+
+CRITICAL: DO THESE IN ORDER BEFORE TOUCHING ANY CODE
+------------------------------------------------------
+1. git fetch origin && git merge origin/main
+   (Toyesh merged today — take his version if CLAUDE.md conflicts)
+
+2. Fix model ID in reasoning.py line 76:
+   WRONG:   model="claude-sonnet-4-20250514"
+   CORRECT: model="claude-sonnet-4-6"
+
+3. git rm -r --cached "00 Dataroom hackathon/" && git commit -m "untrack client data files"
+   (If not done yet — financial client data must not be in git)
+
+4. Wire auth router into main.py:
+   from backend.routers.auth_exact import router as auth_router
+   app.include_router(auth_router)
+   (Two lines. That's all. Gives you /auth/exact/redirect, /auth/exact/callback, /auth/exact/status)
+
+5. Verify: uvicorn backend_FastAPI_emma.main:app --reload
+   curl http://localhost:8000/health  → 200
+   curl http://localhost:8000/auth/exact/status  → {"authenticated": bool, "division_id": int|null}
+
+
+CHECK IDs — FINAL LIST (lock these in your frontend):
+------------------------------------------------------
+suspense_account_balance   blocker
+revenue_reconciliation     high
+capex_opex_misclassification medium
+bank_statement_coverage    medium
+ar_aging_stale             medium
+timing_differences         medium
+vat_reconciliation         medium
+cit_preliminary_deviation  medium
+vat_provisional_correction medium
+ap_aging_stale             medium
+
+REMOVED (delete from frontend if present):
+  todo_discrepancy   — removed Day 5 (local filesystem concept, no Exact Online equivalent)
+  draft_entries      — never existed (no status column in GL data)
+
+
+API CONTRACTS — WHAT CHANGED SINCE LAST HANDOFF:
+-------------------------------------------------
+ReadinessCheck now has: score_after_fix: float | None
+  - None for passing checks and blocker-severity checks
+  - Float for all other failing checks (projected overall_score if fixed)
+  - Example: capex_opex has score_after_fix=0.50 when overall_score=0.40
+
+FinancialRatios now has: gross_profit_margin: RatioResult
+  - value=None, reliable=False on this dataset (COGS is €0 in GL)
+  - Show the .note field: "COGS from GL 7xxx is €0 — will populate after Exact Online import."
+
+REMOVED from FinancialDataset: todo_discrepancies field (no longer exists in model)
+
+
+GIT:
+----
+git fetch origin && git merge origin/main
+pytest tests/test_integration.py -v  → should show 21 passed
+
+
+YOUR TASKS TODAY (final day — demo at 15:00):
+----------------------------------------------
+MUST DO (demo breaks without these):
+  a) Do the 5 critical steps above in order
+  b) Wire guided-diagnosis Claude call — snippet [1] from 2026-05-13 handoff
+  c) Add frontend Connect button: calls GET /auth/exact/status on load;
+     shows "Connect to Exact Online" if authenticated=false, "Connected ✓" if true
+  d) Add score_after_fix display per check card:
+     - Non-blocker failing: "Fix this → score goes to X%"
+     - Blocker failing: "Fix this → unlocks advisory"
+  e) Add 3 missing check cards (existed in engine since Day 3, no frontend card yet):
+     cit_preliminary_deviation, vat_provisional_correction, ap_aging_stale
+  f) Remove todo_discrepancy and draft_entries cards from frontend
+  g) Deploy to Railway (backend) + Vercel (frontend) — must be accessible by URL by 15:00
+
+HIGH VALUE FOR DEMO:
+  h) Add gross_profit_margin to ratios display (show note if unreliable)
+  i) Market comparison paragraph in system prompt — snippet [3] from 2026-05-13 handoff
+  j) LangWatch tracing — snippet [2] from 2026-05-13 handoff (3 lines)
+
+EXACT ONLINE INTEGRATION (wire this for the live demo):
+  k) In analyze endpoint, add use_exact_online path:
+     from backend.services.token_store import get_access_token, get_division_id, is_authenticated
+     from backend.services.data_loader import load_all_from_exact
+     if is_authenticated():
+         tok = await get_access_token()
+         dataset = await load_all_from_exact(tok, get_division_id(), period_start, period_end)
+     else:
+         dataset = await load_all(DATA_FOLDER, period_start, period_end)
+
+
+DEPLOYMENT CHECKLIST:
+---------------------
+Railway (backend):
+  - Procfile and railway.toml already committed
+  - Add env vars in Railway dashboard: EXACT_CLIENT_ID, EXACT_CLIENT_SECRET,
+    EXACT_REDIRECT_URI, ANTHROPIC_API_KEY
+  - For token persistence across restarts, set TOKEN_DB_PATH=/data/oauth_tokens.db
+    and mount a persistent volume at /data (Railway Volumes)
+
+Vercel (frontend):
+  - Set NEXT_PUBLIC_API_URL to your Railway backend URL
+
+
+DEMO SCRIPT:
+------------
+Full 7-step judge walkthrough is in INFO/demo_script.md
+Key numbers to know: score=40%, suspense blocker €39,893, DPO=365 days (flag as needs
+verification), Revenue €1.1M, Gross margin 91.8%.
+
+
+CONTEXT FOR YOUR CLAUDE CODE SESSION:
+--------------------------------------
+Tell your Claude Code: "I'm Emma on the Consult&Co hackathon, Day 5 (final day, demo at 15:00).
+Read toyesh_session_handoff_2026-05-14.txt first. Start by merging origin/main, fixing model ID
+in reasoning.py line 76 (claude-sonnet-4-20250514 → claude-sonnet-4-6), and wiring the auth
+router (backend/routers/auth_exact.py) into main.py with app.include_router(auth_router).
+Then wire guided-diagnosis (snippet [1] from 2026-05-13 handoff), add score_after_fix display
+per check card, remove todo_discrepancy and draft_entries cards, and deploy to Railway/Vercel.
+The engine is 100% done — OAuth tested and working on division 4453885."
