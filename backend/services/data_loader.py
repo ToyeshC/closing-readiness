@@ -77,29 +77,6 @@ def _load_csv(path: Path, sep: str = ";") -> list[dict]:
         return []
 
 
-def _discrepancy(label: str, main_rows: list[dict], todo_rows: list[dict], amount_field: str | None = None, note: str | None = None) -> dict | None:
-    """Return a discrepancy record if counts or amounts differ between main and to-do versions."""
-    count_diff = abs(len(main_rows) - len(todo_rows))
-    amount_diff = None
-    if amount_field:
-        main_total = sum(float(r.get(amount_field) or 0) for r in main_rows if r.get(amount_field) is not None)
-        todo_total = sum(float(r.get(amount_field) or 0) for r in todo_rows if r.get(amount_field) is not None)
-        amount_diff = abs(main_total - todo_total)
-
-    if count_diff == 0 and (amount_diff is None or amount_diff < 0.01):
-        return None
-
-    result = {
-        "file": label,
-        "main_count": len(main_rows),
-        "todo_count": len(todo_rows),
-        "count_diff": count_diff,
-        "amount_diff": amount_diff,
-    }
-    if note:
-        result["note"] = note
-    return result
-
 
 async def load_all(data_folder: Path, period_start: date, period_end: date) -> FinancialDataset:
     root = data_folder
@@ -126,17 +103,9 @@ async def load_all(data_folder: Path, period_start: date, period_end: date) -> F
     bank_2025 = _load_excel(main_folder / "05_bank_cash_entries_2025_import.xlsx")
     bank_entries = bank_2024 + bank_2025
 
-    # Bank to-do copy — combined 2024+2025, used for discrepancy check only
-    bank_todo = _load_excel(todo_folder / "06_bank_cash_entries_2024en2025_import - kopie.xlsx")
-
     # Relations — row 0 is section labels, row 1 is the real header
     relations = _load_excel(
         main_folder / "01_relations_debtors_creditors_import.xlsx",
-        sheet_name="Invoerblad relaties",
-        header=1,
-    )
-    relations_daughter = _load_excel(
-        todo_folder / "01_relations_debtors_creditors_import_daughter.xlsx",
         sheet_name="Invoerblad relaties",
         header=1,
     )
@@ -159,35 +128,6 @@ async def load_all(data_folder: Path, period_start: date, period_end: date) -> F
     item_groups = _load_excel(main_folder / "07_item_groups_optional_import.xlsx")
     items = _load_excel(main_folder / "08_items_optional_import.xlsx")
 
-    # Build discrepancy list for the to-do check
-    discrepancies: list[dict] = []
-
-    # GL / sales / purchase only exist in to do/ — no main counterpart
-    for label, rows in [
-        ("gl_entries_pending_import", gl_entries),
-        ("sales_entries_pending_import", sales_entries),
-        ("purchase_entries_pending_import", purchase_entries),
-    ]:
-        if rows:
-            discrepancies.append({
-                "file": label,
-                "main_count": 0,
-                "todo_count": len(rows),
-                "count_diff": len(rows),
-                "amount_diff": None,
-                "note": "Only exists in to do/ — not yet imported into main administration",
-            })
-
-    # Bank entries: main (2024+2025) vs to-do combined copy
-    d = _discrepancy("bank_entries", bank_entries, bank_todo, amount_field="bedrag")
-    if d:
-        discrepancies.append(d)
-
-    # Relations: main vs daughter
-    d = _discrepancy("relations_daughter", relations, relations_daughter)
-    if d:
-        discrepancies.append(d)
-
     return FinancialDataset(
         period_start=period_start,
         period_end=period_end,
@@ -202,7 +142,6 @@ async def load_all(data_folder: Path, period_start: date, period_end: date) -> F
         tax_schedule=tax_schedule,
         items=items,
         item_groups=item_groups,
-        todo_discrepancies=discrepancies,
     )
 
 
@@ -389,8 +328,7 @@ async def load_all_from_exact(
         ]
 
     # asset_register, intercompany, tax_schedule have no Exact Online equivalent yet.
-    # TODO: confirm with organiser whether these exist elsewhere in Exact Online.
-    # todo_discrepancies concept changes entirely once API is live — see README.
+    # TODO: verify JournalType codes with organiser against actual division data (bank entries filter)
     return FinancialDataset(
         period_start=period_start,
         period_end=period_end,
@@ -405,5 +343,4 @@ async def load_all_from_exact(
         tax_schedule=[],
         items=[],
         item_groups=[],
-        todo_discrepancies=[],
     )

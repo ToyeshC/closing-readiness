@@ -3,7 +3,7 @@
 Closing-readiness + data quality engine for Fietsatelier Morgenwind BV (Dutch bicycle workshop). Responsible AI demo: system refuses to call Claude if data is dirty.
 
 ## Team split
-- **Toyesh:** data ingestion (`data_loader.py`, `load_all_from_exact()`), normalization (`normalizer.py`), readiness engine (`readiness_engine.py`), 11 check modules, financial ratios (`financial_ratios.py`), tests
+- **Toyesh:** data ingestion (`data_loader.py`, `load_all_from_exact()`), normalization (`normalizer.py`), readiness engine (`readiness_engine.py`), 10 check modules, financial ratios (`financial_ratios.py`), tests
 - **Emma:** FastAPI routes (`backend_FastAPI_emma/`), Anthropic API calls (`reasoning.py`), Next.js frontend
 - **Shared:** `models.py` — never change unilaterally; coordinate with partner first
 
@@ -58,7 +58,6 @@ Account code ranges: `0xxx`=CAPEX, `1250`=suspense/clearing ("Nog te duiden"), `
 | check_id | severity | trigger |
 |---|---|---|
 | `suspense_account_balance` | blocker | any GL entry on account 1250 |
-| `todo_discrepancy` | high | count/amount diff in to-do folder files |
 | `revenue_reconciliation` | high | GL 8xxx ≠ sales sum >1% |
 | `capex_opex_misclassification` | medium | asset keywords in 4xxx >€1000 |
 | `bank_statement_coverage` | medium | <90% business day coverage |
@@ -69,6 +68,4 @@ Account code ranges: `0xxx`=CAPEX, `1250`=suspense/clearing ("Nog te duiden"), `
 | `vat_provisional_correction` | medium | multiple VAT payments per quarter in tax schedule |
 | `ap_aging_stale` | medium | open payables >90 days |
 
-Note: `draft_entries` does NOT exist — dropped Day 1 (no status column in data). `todo_discrepancy` is its replacement. Tell Emma to remove `draft_entries` from her frontend.
-
-Day 3 additions (3 new checks): `cit_preliminary_deviation`, `vat_provisional_correction`, `ap_aging_stale` — added based on organiser email hints about CIT/VAT provisional filings and AP aging. Emma needs frontend cards for all three.
+Note: `draft_entries` does NOT exist — dropped Day 1 (no status column in data). `todo_discrepancy` removed Day 5 — was a local-filesystem concept with no Exact Online equivalent. Tell Emma to remove both `draft_entries` and `todo_discrepancy` from her frontend.

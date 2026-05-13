@@ -1,3 +1,5 @@
+> **ARCHIVE — Day 1 specification. Superseded by CLAUDE.md and the live codebase. Do not use as reference.**
+
 # Harness Engine — Claude Code Specification
 > **Who this is for:** Claude Code, acting as my pair programmer  
 > **What I am building:** The data ingestion, normalization, and readiness assessment engine for a financial AI tool built for Consult&Co.'s hackathon (11–15 May 2026)  

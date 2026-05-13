@@ -63,12 +63,6 @@ def test_sales_entry_has_named_columns(dataset):
     )
 
 
-def test_todo_discrepancies_captured(dataset):
-    # GL, sales, purchase only exist in to do/ — should appear as discrepancies
-    assert len(dataset.todo_discrepancies) > 0, "Expected to-do discrepancies but got none"
-    labels = [d["file"] for d in dataset.todo_discrepancies]
-    assert "gl_entries_pending_import" in labels
-
 
 def test_period_fields_set(dataset):
     assert dataset.period_start == PERIOD_START
@@ -146,3 +140,31 @@ def test_token_store_unauthenticated(tmp_path, monkeypatch):
     from backend.services import token_store
     assert token_store.is_authenticated() is False
     assert token_store.get_division_id() is None
+
+
+def test_score_after_fix_populated_for_failing_checks(dataset):
+    from backend.services.readiness_engine import ReadinessEngine
+    report = ReadinessEngine(dataset).run()
+    for c in report.checks:
+        if c.status != "pass" and c.severity != "blocker":
+            assert c.score_after_fix is not None, (
+                f"{c.check_id} is non-pass but score_after_fix is None"
+            )
+            assert c.score_after_fix > report.overall_score, (
+                f"{c.check_id}: score_after_fix {c.score_after_fix} should be > "
+                f"overall_score {report.overall_score}"
+            )
+        elif c.severity == "blocker":
+            assert c.score_after_fix is None, (
+                f"blocker {c.check_id} should have score_after_fix=None (gates advice_ready, not score)"
+            )
+
+
+def test_score_after_fix_none_for_passing_checks(dataset):
+    from backend.services.readiness_engine import ReadinessEngine
+    report = ReadinessEngine(dataset).run()
+    for c in report.checks:
+        if c.status == "pass":
+            assert c.score_after_fix is None, (
+                f"{c.check_id} is passing but has score_after_fix = {c.score_after_fix}"
+            )

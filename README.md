@@ -13,7 +13,7 @@ Financial data quality gate for Dutch SME closing. Ingests raw bookkeeping expor
 backend/services/data_loader.py     loads Excel/CSV/PDF files (or Exact Online API) → FinancialDataset
         │
         ▼
-backend/services/readiness_engine.py  runs 11 checks + financial ratios → DataReadinessReport
+backend/services/readiness_engine.py  runs 10 checks + financial ratios → DataReadinessReport
         │
         ├─ advice_ready = False → Claude guided-diagnosis (explains what to fix, not a hard block)
         └─ advice_ready = True  → Claude Sonnet advisory + market comparison
@@ -30,7 +30,6 @@ frontend/                           Next.js UI (Emma)
 | Check | Severity | Trigger |
 |---|---|---|
 | Suspense account balance | blocker | Any GL entry on account 1250 |
-| Unimported file discrepancies | high | Files in `to do/` differ from main |
 | Revenue reconciliation | high | GL 8xxx ≠ sales entries total by >1% |
 | CapEx/OpEx misclassification | medium | Asset keywords in 4xxx accounts >€1,000 |
 | Bank statement coverage | medium | <90% of business days covered |
@@ -90,9 +89,8 @@ Local files only — not in git. Folder: `00 Dataroom hackathon/` (Fietsatelier 
 
 ## Waiting On External Dependencies
 
-- **Exact Online OAuth credentials**: Organiser will provide `client_id` + `client_secret` once redirect URL is registered. Redirect URL ready: `https://unwired-sweep-apostle.ngrok-free.dev/auth/exact/callback`. Once received: wire `load_all_from_exact()` in `data_loader.py` (scaffold already written) and add auth endpoints to Emma's FastAPI.
-- **`todo_discrepancy` check redesign**: Current check compares local "to do/" folder files against main folder. Once Exact Online API is live, concept changes entirely — to-do items exist natively in Exact Online. Check needs rethinking post-API.
-- **Suspense entry reasons**: Exact Online stores a reason/description on suspense entries. Once API is connected, surface these in `source_lines` panel so users see *why* an entry is in 1250, not just that it is.
+- **Exact Online OAuth**: Credentials received (Day 5). OAuth router + token store implemented. Emma wires auth router into `main.py` and adds `use_exact_online` flag to `/analyze` endpoint.
+- **Suspense entry reasons**: Exact Online stores a reason/description on suspense entries. Once API is confirmed live, surface these in `source_lines` panel so users see *why* an entry is in 1250, not just that it is.
 - **Emma's frontend**: `AnalysisResult` schema needs `ratios: FinancialRatios` field exposed; 3 new check cards needed (`cit_preliminary_deviation`, `vat_provisional_correction`, `ap_aging_stale`); guided-diagnosis response wiring needed.
 - **LangWatch instrumentation**: 3-line addition to Emma's `reasoning.py` — see handoff for copy-paste snippet. Enables live trace dashboard for demo.
 

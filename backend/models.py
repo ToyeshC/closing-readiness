@@ -21,6 +21,7 @@ class ReadinessCheck(BaseModel):
     description: str     # what is wrong and why it matters, in plain English
     affected_amount: float | None
     source_lines: list[SourceLine]
+    score_after_fix: float | None = None   # overall_score if this check passed; None for passing checks
 
 
 class FinancialDataset(BaseModel):
@@ -37,7 +38,6 @@ class FinancialDataset(BaseModel):
     tax_schedule: list[dict]
     items: list[dict]
     item_groups: list[dict]
-    todo_discrepancies: list[dict]  # record/amount gaps between main and to-do folder files
 
 
 class RatioResult(BaseModel):
