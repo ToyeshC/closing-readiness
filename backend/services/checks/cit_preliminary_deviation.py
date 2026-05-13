@@ -17,6 +17,7 @@ _CIT_REGEX = re.compile(r"CIT liability[^€]*€\s*([\d.]+,\d+)")
 
 _WARN_THRESHOLD = 0.10
 _FAIL_THRESHOLD = 0.25
+_WARN_ABSOLUTE = 5_000.0   # flag if gap > €5,000 regardless of percentage
 
 
 def _extract_cit(pdf_path: Path) -> float | None:
@@ -69,7 +70,7 @@ def check(dataset: FinancialDataset) -> ReadinessCheck:
             source_lines=[],
         )
 
-    if deviation > _WARN_THRESHOLD:
+    if deviation > _WARN_THRESHOLD or delta > _WARN_ABSOLUTE:
         return ReadinessCheck(
             check_id="cit_preliminary_deviation",
             label="CIT preliminary vs final assessment",

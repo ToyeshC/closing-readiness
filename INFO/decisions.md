@@ -81,3 +81,35 @@ Non-obvious choices made during the hackathon. Use this when judges ask "why did
 **Choice:** Count VAT payment rows per quarter in `tax_payment_schedule.csv`. Multiple payments for the same quarter = correction filing signal.
 
 **Why:** GL account 1870 has zero entries in the dataset — VAT doesn't appear in the GL. The tax schedule is the only source of payment-level granularity. A correction filing would appear as an additional payment row for the same quarter reference.
+
+---
+
+## Financial ratios: greedy amount-matching, period-filtered
+
+**Choice:** Open AR/AP computed by matching invoice amounts to bank entries using a greedy pool (exact key first, then within 1% tolerance). Period filter applied: only invoices dated within `[period_start, period_end]` counted.
+
+**Why:** The sales/purchase entry files cover 2024 and 2025. Without period filtering, 2025 invoices inflated open AR from €91K to €280K, pushing DSO from 36 days to 199 days. The 1% tolerance covers common rounding differences between invoiced and paid amounts. Same logic as existing ar_aging/ap_aging checks — consistent by design.
+
+---
+
+## UX pivot: advice_ready=False triggers guided-diagnosis, not hard block
+
+**Choice:** When `advice_ready=False`, still call Claude with a guidance-mode system prompt (list of failing checks + amounts). Returns a prioritised fix list. The readiness gate is still the gatekeeper — Claude never produces a closing advisory on dirty data — but it can explain what to fix.
+
+**Why:** Organiser feedback on Day 4: "If the model says no, it should say why no and what to fix." A hard block with a status message leaves the user stuck. Guided diagnosis keeps the "responsible AI" story while being actually useful. Claude advises on the data quality problem, not on the financial data itself.
+
+---
+
+## CIT check: absolute € threshold added alongside percentage threshold
+
+**Choice:** `cit_preliminary_deviation` warns if `abs(provisional - final) > €5,000` regardless of the percentage deviation (`_WARN_ABSOLUTE = 5_000.0`).
+
+**Why:** Organiser explicitly flagged this on Day 4: "5% of a large base is a large number." For a company with €96K CIT liability, a 3% deviation is €2,880 — fine. But if the base were €1M, 3% = €30K in interest exposure. The absolute threshold catches cases the percentage threshold misses.
+
+---
+
+## Exact Online loader: local file loading retained as fallback
+
+**Choice:** `load_all_from_exact()` added alongside `load_all()` in `data_loader.py`. `analyze.py` picks the loader based on whether an OAuth token exists. Local file loading is not removed.
+
+**Why:** Exact Online OAuth credentials not yet received at time of implementation. Demo must still work with local files. The field mapping is an internal detail of `load_all_from_exact()` — all checks consume `FinancialDataset` regardless of source, so zero check changes needed when switching loaders.

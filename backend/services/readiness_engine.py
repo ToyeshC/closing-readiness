@@ -1,4 +1,5 @@
 from backend.models import DataReadinessReport, FinancialDataset, ReadinessCheck
+from backend.services.financial_ratios import compute_ratios
 from backend.services.checks import (
     ap_aging,
     ar_aging,
@@ -33,11 +34,13 @@ class ReadinessEngine:
             ap_aging.check(self.dataset),
         ]
         score, advice_ready = _score(checks)
+        ratios = compute_ratios(self.dataset)
         return DataReadinessReport(
             dataset=self.dataset,
             overall_score=score,
             advice_ready=advice_ready,
             checks=checks,
+            ratios=ratios,
         )
 
 
