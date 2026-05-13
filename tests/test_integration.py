@@ -114,3 +114,35 @@ def test_revenue_period_positive(ratios):
 def test_open_ar_reliable(ratios):
     assert ratios.open_ar.reliable is True
     assert ratios.open_ar.value is not None and ratios.open_ar.value > 0
+
+
+def test_gross_profit_margin_field_exists(ratios):
+    from backend.models import RatioResult
+    assert hasattr(ratios, "gross_profit_margin")
+    assert isinstance(ratios.gross_profit_margin, RatioResult)
+
+
+def test_gross_profit_margin_structure(ratios):
+    gpm = ratios.gross_profit_margin
+    if gpm.value is None:
+        assert gpm.reliable is False, "gross_profit_margin with no value must be unreliable"
+        assert gpm.note is not None, "unreliable ratio must have an explanatory note"
+    else:
+        assert -1.0 <= gpm.value <= 1.0, (
+            f"gross_profit_margin {gpm.value} outside plausible range [-1, 1]"
+        )
+
+
+def test_token_store_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setenv("TOKEN_DB_PATH", str(tmp_path / "test_tokens.db"))
+    from backend.services import token_store
+    token_store.store_tokens("tok_access", "tok_refresh", 3600, 99999)
+    assert token_store.is_authenticated() is True
+    assert token_store.get_division_id() == 99999
+
+
+def test_token_store_unauthenticated(tmp_path, monkeypatch):
+    monkeypatch.setenv("TOKEN_DB_PATH", str(tmp_path / "empty_tokens.db"))
+    from backend.services import token_store
+    assert token_store.is_authenticated() is False
+    assert token_store.get_division_id() is None

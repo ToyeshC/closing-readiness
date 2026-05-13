@@ -54,6 +54,7 @@ class FinancialRatios(BaseModel):
     purchases_period: RatioResult          # total purchases in period (from purchase entries)
     open_ar: RatioResult                   # total unmatched sales invoices in period
     open_ap: RatioResult                   # total unmatched purchase invoices in period
+    gross_profit_margin: RatioResult       # (revenue - COGS) / revenue; COGS from GL 7xxx
 
 
 class DataReadinessReport(BaseModel):

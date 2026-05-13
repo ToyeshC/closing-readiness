@@ -102,6 +102,30 @@ def compute_ratios(dataset: FinancialDataset) -> FinancialRatios:
 
     working_capital = open_ar - open_ap
 
+    # COGS: sum positive bedrag from GL 7xxx accounts (debits = expenses in Dutch GL)
+    cogs = sum(
+        _to_float(r.get("bedrag", 0))
+        for r in dataset.gl_entries
+        if str(r.get("grootboekrekening", "")).startswith("7")
+        and _to_float(r.get("bedrag", 0)) > 0
+        and dataset.period_start <= _to_date(r.get("boekdatum", dataset.period_start)) <= dataset.period_end
+    )
+    if revenue > 0 and cogs > 0:
+        gp_margin = RatioResult(
+            value=round((revenue - cogs) / revenue, 4),
+            reliable=True,
+            note=None,
+        )
+    else:
+        gp_margin = RatioResult(
+            value=None,
+            reliable=False,
+            note=(
+                "COGS from GL 7xxx is €0 — will populate after Exact Online import."
+                if cogs == 0 else "Revenue from sales entries is €0."
+            ),
+        )
+
     return FinancialRatios(
         dso_days=RatioResult(
             value=round(dso, 1) if dso is not None else None,
@@ -138,4 +162,5 @@ def compute_ratios(dataset: FinancialDataset) -> FinancialRatios:
             reliable=True,
             note=None,
         ),
+        gross_profit_margin=gp_margin,
     )
