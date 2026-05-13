@@ -46,7 +46,7 @@ def store_tokens(
     division_id: int,
 ) -> None:
     """Upsert the single token row. Called from the OAuth callback."""
-    expires_at = time.time() + expires_in
+    expires_at = time.time() + int(expires_in)
     with _get_conn() as conn:
         conn.execute("""
             INSERT INTO tokens (id, access_token, refresh_token, expires_at, division_id)

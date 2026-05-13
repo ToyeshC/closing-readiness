@@ -169,6 +169,17 @@ async def _exact_get_all(client: httpx.AsyncClient, url: str, headers: dict) -> 
     return results
 
 
+async def _exact_get_safe(
+    client: httpx.AsyncClient, url: str, headers: dict, name: str = ""
+) -> list[dict]:
+    """Like _exact_get_all but returns [] on HTTP errors instead of raising."""
+    try:
+        return await _exact_get_all(client, url, headers)
+    except Exception as e:
+        logger.warning("Exact Online %s skipped: %s", name or url.split("?")[0].split("/")[-1], e)
+        return []
+
+
 async def load_all_from_exact(
     access_token: str,
     division_id: int,
@@ -179,24 +190,21 @@ async def load_all_from_exact(
     Load FinancialDataset from Exact Online REST API.
 
     Field mapping (Exact Online JSON → Dutch column names all checks expect):
-      TransactionLines.Date          → boekdatum
-      TransactionLines.AmountDC      → bedrag
-      TransactionLines.GLAccountCode → grootboekrekening
-      TransactionLines.Description   → omschrijving
-      TransactionLines.EntryNumber   → boekstuknummer
+      TransactionLines.Date            → boekdatum
+      TransactionLines.AmountDC        → bedrag
+      TransactionLines.GLAccountCode   → grootboekrekening
+      TransactionLines.Description     → omschrijving
+      TransactionLines.EntryNumber     → boekstuknummer
       TransactionLines.FinancialPeriod → periode
-      SalesInvoices.InvoiceDate      → boekdatum
-      SalesInvoices.AmountDC         → bedrag
-      SalesInvoices.DebtorCode       → code
-      SalesInvoices.DebtorName       → naam
-      PurchaseEntries.EntryDate      → boekdatum
-      PurchaseEntries.AmountDC       → bedrag
-      PurchaseEntries.SupplierCode   → code
-      PurchaseEntries.SupplierName   → naam
+      PurchaseEntries.EntryDate        → boekdatum
+      PurchaseEntries.AmountDC         → bedrag
+      PurchaseEntries.SupplierName     → naam  (no SupplierCode in API)
+      BankEntryLines.Date              → datum
+      BankEntryLines.AmountDC          → bedrag
+      OpeningBalance.Amount+BalanceSide → bedrag (debit positive, credit negative)
     """
     base = f"{_EXACT_BASE}/{division_id}"
     hdrs = _exact_headers(access_token)
-    # OData datetime filter — Exact Online uses /Date(ms)/ but accepts ISO in $filter
     d_filter = (
         f"Date ge datetime'{period_start.isoformat()}T00:00:00'"
         f" and Date le datetime'{period_end.isoformat()}T23:59:59'"
@@ -206,7 +214,7 @@ async def load_all_from_exact(
         # GL entries — all transaction lines in period
         gl_raw = await _exact_get_all(
             client,
-            f"{base}/financials/TransactionLines"
+            f"{base}/financialtransaction/TransactionLines"
             f"?$filter={d_filter}"
             "&$select=EntryNumber,Date,AmountDC,GLAccountCode,Description,FinancialPeriod",
             hdrs,
@@ -223,62 +231,77 @@ async def load_all_from_exact(
             for r in gl_raw
         ]
 
-        # Sales invoices
-        sales_raw = await _exact_get_all(
+        # Sales entries — SalesInvoices is empty when data is imported as GL entries.
+        # Fall back to TransactionLines on account 1300 (AR/debtors) as sales proxy.
+        sales_raw = await _exact_get_safe(
             client,
             f"{base}/salesinvoice/SalesInvoices"
             f"?$filter=InvoiceDate ge datetime'{period_start.isoformat()}T00:00:00'"
             f" and InvoiceDate le datetime'{period_end.isoformat()}T23:59:59'"
             "&$select=EntryNumber,InvoiceDate,AmountDC,DebtorCode,DebtorName,Description,DueDate,YourRef",
-            hdrs,
+            hdrs, "SalesInvoices",
         )
-        sales_entries = [
-            {
-                "boekstuknummer": r.get("EntryNumber"),
-                "boekdatum": r.get("InvoiceDate"),
-                "bedrag": r.get("AmountDC"),
-                "code": r.get("DebtorCode"),
-                "naam": r.get("DebtorName"),
-                "omschrijving": r.get("Description"),
-                "vervaldatum": r.get("DueDate"),
-                "uw_ref": r.get("YourRef"),
-                "grootboekrekening": "1300",  # AR account — debtor invoices always 1300
-            }
-            for r in sales_raw
-        ]
+        if sales_raw:
+            sales_entries = [
+                {
+                    "boekstuknummer": r.get("EntryNumber"),
+                    "boekdatum": r.get("InvoiceDate"),
+                    "bedrag": r.get("AmountDC"),
+                    "code": r.get("DebtorCode"),
+                    "naam": r.get("DebtorName"),
+                    "omschrijving": r.get("Description"),
+                    "vervaldatum": r.get("DueDate"),
+                    "uw_ref": r.get("YourRef"),
+                    "grootboekrekening": "1300",
+                }
+                for r in sales_raw
+            ]
+        else:
+            # Fallback: AR lines from GL — no due date available
+            ar_lines = [e for e in gl_entries if str(e.get("grootboekrekening", "")).startswith("13")]
+            sales_entries = [
+                {**e, "vervaldatum": None, "code": None, "naam": None, "uw_ref": None}
+                for e in ar_lines
+            ]
 
-        # Purchase entries
-        purch_raw = await _exact_get_all(
+        # Purchase entries — SupplierCode field does not exist in API; use SupplierName only
+        purch_raw = await _exact_get_safe(
             client,
             f"{base}/purchaseentry/PurchaseEntries"
             f"?$filter=EntryDate ge datetime'{period_start.isoformat()}T00:00:00'"
             f" and EntryDate le datetime'{period_end.isoformat()}T23:59:59'"
-            "&$select=EntryNumber,EntryDate,AmountDC,SupplierCode,SupplierName,Description,DueDate,YourRef",
-            hdrs,
+            "&$select=EntryNumber,EntryDate,AmountDC,SupplierName,Description,DueDate,YourRef",
+            hdrs, "PurchaseEntries",
         )
         purchase_entries = [
             {
                 "boekstuknummer": r.get("EntryNumber"),
                 "boekdatum": r.get("EntryDate"),
                 "bedrag": r.get("AmountDC"),
-                "code": r.get("SupplierCode"),
+                "code": None,
                 "naam": r.get("SupplierName"),
                 "omschrijving": r.get("Description"),
                 "vervaldatum": r.get("DueDate"),
                 "uw_ref": r.get("YourRef"),
-                "grootboekrekening": "1700",  # AP account — creditor invoices always 1700
+                "grootboekrekening": "1700",
             }
             for r in purch_raw
         ]
 
-        # Bank entries — TransactionLines for bank (12) and cash (22) journals
-        # TODO: verify JournalType codes with organiser against actual division data
-        bank_raw = await _exact_get_all(
+        # Bank entries — BankEntryLines has Date+AmountDC; BankEntries header does not
+        bank_lines_raw = await _exact_get_safe(
             client,
-            f"{base}/financials/TransactionLines"
-            f"?$filter={d_filter} and (JournalType eq 12 or JournalType eq 22)"
+            f"{base}/financialtransaction/BankEntryLines"
+            f"?$filter={d_filter}"
             "&$select=EntryNumber,Date,AmountDC,AccountName,Description",
-            hdrs,
+            hdrs, "BankEntryLines",
+        )
+        cash_lines_raw = await _exact_get_safe(
+            client,
+            f"{base}/financialtransaction/CashEntryLines"
+            f"?$filter={d_filter}"
+            "&$select=EntryNumber,Date,AmountDC,AccountName,Description",
+            hdrs, "CashEntryLines",
         )
         bank_entries = [
             {
@@ -288,47 +311,43 @@ async def load_all_from_exact(
                 "omschrijving": r.get("Description"),
                 "boekstuknummer": r.get("EntryNumber"),
             }
-            for r in bank_raw
+            for r in bank_lines_raw + cash_lines_raw
         ]
 
-        # Opening balances — FinancialPeriod 0 = opening journal entries
-        opening_raw = await _exact_get_all(
+        # Opening balances — Amount is signed per BalanceSide (D=debit positive, C=credit negative)
+        opening_raw = await _exact_get_safe(
             client,
-            f"{base}/financials/TransactionLines"
-            "?$filter=FinancialPeriod eq 0"
-            "&$select=EntryNumber,Date,AmountDC,GLAccountCode,Description",
-            hdrs,
+            f"{base}/openingbalance/CurrentYear/AfterEntry"
+            "?$select=GLAccountCode,GLAccountDescription,Amount,BalanceSide",
+            hdrs, "OpeningBalance",
         )
         opening_balances = [
             {
-                "boekstuknummer": r.get("EntryNumber"),
-                "boekdatum": r.get("Date"),
-                "bedrag": r.get("AmountDC"),
                 "grootboekrekening": r.get("GLAccountCode"),
-                "omschrijving": r.get("Description"),
+                "bedrag": (r.get("Amount") or 0) * (1 if r.get("BalanceSide") == "D" else -1),
+                "omschrijving": r.get("GLAccountDescription"),
             }
             for r in opening_raw
         ]
 
         # Relations
-        relations_raw = await _exact_get_all(
+        relations_raw = await _exact_get_safe(
             client,
             f"{base}/crm/Accounts"
-            "?$select=Code,Name,AccountManagerName,Email,Phone,City",
-            hdrs,
+            "?$select=Code,Name,AccountManagerFullName,Email",
+            hdrs, "Accounts",
         )
         relations = [
             {
                 "code": r.get("Code"),
                 "naam": r.get("Name"),
-                "account_manager": r.get("AccountManagerName"),
+                "account_manager": r.get("AccountManagerFullName"),
                 "email": r.get("Email"),
             }
             for r in relations_raw
         ]
 
-    # asset_register, intercompany, tax_schedule have no Exact Online equivalent yet.
-    # TODO: verify JournalType codes with organiser against actual division data (bank entries filter)
+    # asset_register, intercompany, tax_schedule have no Exact Online equivalent.
     return FinancialDataset(
         period_start=period_start,
         period_end=period_end,
