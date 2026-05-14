@@ -55,6 +55,11 @@ export default function Home() {
       .catch(() => setAuthenticated(false));
   }, []);
 
+  function handleStartOver() {
+    localStorage.removeItem("analysis_result");
+    setResult(null);
+  }
+
   async function runCheck() {
     setLoading(true);
     setError(null);
@@ -82,6 +87,7 @@ export default function Home() {
           <ExecutiveSummary
             result={result}
             onRerun={() => setShowRerun(!showRerun)}
+            onStartOver={handleStartOver}
             showRerun={showRerun}
             // Pre-run controls re-rendered inside the drawer
             periodStart={periodStart}
@@ -228,6 +234,7 @@ interface ExecSummaryProps {
 function ExecutiveSummary({
   result,
   onRerun,
+  onStartOver,
   showRerun,
   periodStart,
   periodEnd,
@@ -382,6 +389,12 @@ function ExecutiveSummary({
           className="px-5 py-2.5 rounded-lg text-sm font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-navy)] transition-colors"
         >
           {showRerun ? "Cancel" : "Re-run with different period"}
+        </button>
+        <button
+          onClick={onStartOver}
+          className="px-5 py-2.5 rounded-lg text-sm font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-rose-deep)] transition-colors"
+        >
+          Start over
         </button>
       </section>
 
