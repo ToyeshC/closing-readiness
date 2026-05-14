@@ -1,9 +1,5 @@
 "use client";
 
-// Extracted from the previous inline CheckCard in report/page.tsx.
-// Same behavior — lazy-loads source lines on demand — but uses the
-// shared StatusBadge and brand colors.
-
 import { useState } from "react";
 import type { ReadinessCheck, SourceLine } from "../app/types";
 import { StatusBadge } from "./StatusBadge";
@@ -15,113 +11,98 @@ interface CheckCardProps {
   delay?: number;
 }
 
+const STATUS_STYLES: Record<string, { accent: string; bg: string }> = {
+  blocker: { accent: "border-l-[var(--color-status-blocker)]", bg: "bg-[var(--color-status-blocker-bg)]" },
+  fail:    { accent: "border-l-[var(--color-status-fail)]",    bg: "bg-[var(--color-status-fail-bg)]" },
+  warn:    { accent: "border-l-[var(--color-status-warn)]",    bg: "bg-[var(--color-status-warn-bg)]" },
+  pass:    { accent: "border-l-[var(--color-status-pass)]",    bg: "bg-[var(--color-status-pass-bg)]" },
+};
+
 export function CheckCard({ check, delay = 0 }: CheckCardProps) {
   const [showSources, setShowSources] = useState(false);
   const [sources, setSources] = useState<SourceLine[] | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function toggleSources() {
-    if (showSources) {
-      setShowSources(false);
-      return;
-    }
+    if (showSources) { setShowSources(false); return; }
     if (!sources) {
       setLoading(true);
-      try {
-        setSources(await fetchSources(check.check_id));
-      } catch {
-        setSources([]);
-      } finally {
-        setLoading(false);
-      }
+      try { setSources(await fetchSources(check.check_id)); }
+      catch { setSources([]); }
+      finally { setLoading(false); }
     }
     setShowSources(true);
   }
 
   const hasSources = check.status !== "pass";
-
-  const borderClass =
-    check.status === "blocker"
-      ? "border-[var(--color-brand-rose)]"
-      : check.status === "fail"
-      ? "border-amber-200"
-      : check.status === "warn"
-      ? "border-amber-100"
-      : "border-[var(--color-brand-line)]";
+  const styles = STATUS_STYLES[check.status] ?? STATUS_STYLES.pass;
 
   return (
     <div
-      className={`bg-white border rounded-lg p-4 motion-safe:animate-fade-in-up ${borderClass}`}
+      className={`border border-[var(--color-brand-line)] border-l-4 rounded-lg overflow-hidden motion-safe:animate-fade-in-up ${styles.accent}`}
       style={{ animationDelay: `${delay}ms` }}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1.5">
-            <StatusBadge status={check.status} />
-            <span className="text-sm font-medium text-[var(--color-brand-ink)]">
-              {check.label}
-            </span>
-          </div>
-
-          <p className="text-sm text-[var(--color-brand-muted)] mb-2">
-            {check.description}
-          </p>
-
-          {check.affected_amount !== null && check.affected_amount !== undefined && (
-            <p className="text-sm font-medium text-[var(--color-brand-ink)] tabular-nums">
-              Amount: {formatEur(check.affected_amount)}
-            </p>
-          )}
-
-          {check.status === "blocker" && (
-            <p className="mt-1.5 text-xs text-[var(--color-brand-rose-deep)] font-medium">
-              Fix this → unlocks advisory
-            </p>
-          )}
-          {check.status !== "blocker" &&
-            check.status !== "pass" &&
-            check.score_after_fix !== null && (
-              <p className="mt-1.5 text-xs text-[var(--color-brand-muted)]">
-                Fix this → score goes to{" "}
+      <div className={`px-4 py-3.5 ${styles.bg}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <StatusBadge status={check.status} />
+              <span className="text-sm font-medium text-[var(--color-brand-ink)]">
+                {check.label}
+              </span>
+              <span className="text-[10px] font-mono text-[var(--color-brand-muted)] opacity-70">
+                {check.check_id}
+              </span>
+            </div>
+            <p className="text-sm text-[var(--color-brand-muted)]">{check.description}</p>
+            {check.affected_amount !== null && check.affected_amount !== undefined && (
+              <p className="text-sm font-semibold text-[var(--color-brand-ink)] tabular-nums mt-1">
+                {formatEur(check.affected_amount)}
+              </p>
+            )}
+            {check.status === "blocker" && (
+              <p className="mt-1 text-xs text-[var(--color-status-blocker)] font-medium">
+                Fix this to unlock advisory
+              </p>
+            )}
+            {check.status !== "blocker" && check.status !== "pass" && check.score_after_fix !== null && (
+              <p className="mt-1 text-xs text-[var(--color-brand-muted)]">
+                Fix this → score{" "}
                 <span className="font-semibold text-[var(--color-brand-navy)]">
                   {formatPct(check.score_after_fix)}
                 </span>
               </p>
             )}
+          </div>
+          {hasSources && (
+            <button
+              onClick={toggleSources}
+              className="shrink-0 text-xs text-[var(--color-brand-navy)] hover:underline whitespace-nowrap mt-0.5"
+            >
+              {loading ? "Loading…" : showSources ? "Hide ↑" : "Source ↓"}
+            </button>
+          )}
         </div>
-
-        {hasSources && (
-          <button
-            onClick={toggleSources}
-            className="shrink-0 text-xs text-[var(--color-brand-navy)] hover:text-[var(--color-brand-navy-soft)] underline whitespace-nowrap"
-          >
-            {loading ? "Loading…" : showSources ? "Hide source" : "Show source"}
-          </button>
-        )}
       </div>
 
       {showSources && sources && sources.length > 0 && (
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-xs text-[var(--color-brand-ink)] border-t border-[var(--color-brand-line)]">
+        <div className="overflow-x-auto border-t border-[var(--color-brand-line)] bg-[var(--color-brand-surface)]">
+          <table className="w-full text-xs text-[var(--color-brand-ink)]">
             <thead>
-              <tr className="text-[var(--color-brand-muted)] uppercase tracking-wide">
-                <th className="text-left py-2 pr-3">Date</th>
-                <th className="text-left py-2 pr-3">Account</th>
-                <th className="text-right py-2 pr-3">Amount</th>
-                <th className="text-left py-2">Description</th>
+              <tr className="bg-[var(--color-brand-cream)] text-[var(--color-brand-muted)] uppercase tracking-wide text-[10px]">
+                <th className="text-left px-4 py-2">Date</th>
+                <th className="text-left px-4 py-2">Account</th>
+                <th className="text-right px-4 py-2">Amount</th>
+                <th className="text-left px-4 py-2">Description</th>
               </tr>
             </thead>
             <tbody>
               {sources.map((s, i) => (
-                <tr key={i} className="border-t border-[var(--color-brand-cream-deep)]">
-                  <td className="py-1.5 pr-3 whitespace-nowrap">{s.date}</td>
-                  <td className="py-1.5 pr-3 font-mono">{s.account_code}</td>
-                  <td className="py-1.5 pr-3 text-right whitespace-nowrap tabular-nums">
-                    {formatEur(s.amount)}
-                  </td>
-                  <td className="py-1.5 text-[var(--color-brand-muted)] truncate max-w-xs">
-                    {s.description}
-                  </td>
+                <tr key={i} className="border-t border-[var(--color-brand-line)] even:bg-[var(--color-brand-cream)]/40">
+                  <td className="px-4 py-2 whitespace-nowrap">{s.date}</td>
+                  <td className="px-4 py-2 font-mono">{s.account_code}</td>
+                  <td className="px-4 py-2 text-right whitespace-nowrap tabular-nums">{formatEur(s.amount)}</td>
+                  <td className="px-4 py-2 text-[var(--color-brand-muted)] truncate max-w-xs">{s.description}</td>
                 </tr>
               ))}
             </tbody>

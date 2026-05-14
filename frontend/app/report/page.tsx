@@ -47,36 +47,33 @@ export default function ReportPage() {
       <Header current="report" />
 
       <div className="max-w-5xl mx-auto w-full px-6 sm:px-8 py-10 flex-1">
-        {/* Score summary */}
-        <section className="mb-10 bg-white border border-[var(--color-brand-line)] rounded-lg p-6 grid grid-cols-1 md:grid-cols-[auto_1fr] gap-6 items-center motion-safe:animate-fade-in-up">
-          <ScoreGauge score={readiness.overall_score} size={150} />
+        {/* Score hero */}
+        <section className="mb-8 bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] rounded-xl p-6 grid grid-cols-1 md:grid-cols-[auto_1fr] gap-6 items-center motion-safe:animate-fade-in-up">
+          <ScoreGauge score={readiness.overall_score} size={170} />
           <div>
-            <div className="flex items-center gap-3 mb-2">
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                  readiness.advice_ready
-                    ? "bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)]"
-                    : "bg-[var(--color-brand-rose)]/20 text-[var(--color-brand-rose-deep)] border border-[var(--color-brand-rose)]"
-                }`}
-              >
-                {readiness.advice_ready ? "Advisory ready" : "Advisory blocked"}
-              </span>
-              <span className="text-xs text-[var(--color-brand-muted)]">
-                Threshold {formatPct(0.6)}
-              </span>
-            </div>
-            <p className="text-sm text-[var(--color-brand-muted)] max-w-xl">
+            <h1 className="font-[family-name:var(--font-display)] text-2xl font-semibold text-[var(--color-brand-navy)] mb-1">
+              {readiness.advice_ready ? "Advisory ready" : "Advisory blocked"}
+            </h1>
+            <p className="text-sm text-[var(--color-brand-muted)] max-w-xl mb-4">
               {readiness.advice_ready
-                ? "Data passed all blockers. Claude advisory below uses verified facts only."
-                : "At least one blocker present. Claude runs guided-diagnosis mode instead of advisory."}
+                ? "Data passed all blockers. Claude advisory uses verified facts only."
+                : "At least one blocker present. Claude runs guided-diagnosis instead of advisory."}
             </p>
-            <div className="mt-4">
+            <div className="flex flex-wrap gap-2">
               <Link
                 href="/advisory"
-                className="text-sm text-[var(--color-brand-navy)] hover:text-[var(--color-brand-rose-deep)] underline"
+                className="px-4 py-2 rounded-lg bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-medium hover:bg-[var(--color-brand-navy-soft)] transition-colors"
               >
                 {readiness.advice_ready ? "View advisory →" : "View guided diagnosis →"}
               </Link>
+              {!readiness.advice_ready && (
+                <Link
+                  href="/fix-plan"
+                  className="px-4 py-2 rounded-lg border border-[var(--color-brand-line)] text-[var(--color-brand-navy)] text-sm font-medium hover:bg-[var(--color-brand-cream-deep)] transition-colors"
+                >
+                  Generate fix plan →
+                </Link>
+              )}
             </div>
           </div>
         </section>
@@ -100,15 +97,20 @@ export default function ReportPage() {
           />
         )}
 
-        {/* Check cards */}
+        {/* Check cards — blockers first, then fails/warns, then passes */}
         <section>
-          <h2 className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-3">
+          <h2 className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-3 font-semibold">
             Data quality checks ({readiness.checks.length})
           </h2>
-          <div className="space-y-3">
-            {readiness.checks.map((c, i) => (
-              <CheckCard key={c.check_id} check={c} delay={i * 40} />
-            ))}
+          <div className="space-y-2.5">
+            {[...readiness.checks]
+              .sort((a, b) => {
+                const order = { blocker: 0, fail: 1, warn: 2, pass: 3 } as const;
+                return order[a.status] - order[b.status];
+              })
+              .map((c, i) => (
+                <CheckCard key={c.check_id} check={c} delay={i * 30} />
+              ))}
           </div>
         </section>
       </div>
@@ -129,7 +131,7 @@ function RatiosPanel({ ratios }: { ratios: FinancialRatios }) {
 
   return (
     <section className="mb-6">
-      <h2 className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-3">
+      <h2 className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-3 font-semibold">
         Financial ratios
       </h2>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -168,7 +170,7 @@ function AgingTable({ entries, title }: { entries: AgingEntry[]; title: string }
     <div className="border border-[var(--color-brand-line)] rounded-lg overflow-hidden">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-[var(--color-brand-cream)] transition-colors text-left"
+        className="w-full flex items-center justify-between px-4 py-3 bg-[var(--color-brand-surface)] hover:bg-[var(--color-brand-cream)] transition-colors text-left"
       >
         <span className="text-xs font-semibold text-[var(--color-brand-navy)] uppercase tracking-wide">
           {title}
@@ -196,7 +198,7 @@ function AgingTable({ entries, title }: { entries: AgingEntry[]; title: string }
               {entries.map((e, i) => (
                 <tr
                   key={i}
-                  className="border-t border-[var(--color-brand-line)] bg-white even:bg-[var(--color-brand-cream)]/40"
+                  className="border-t border-[var(--color-brand-line)] bg-[var(--color-brand-surface)] even:bg-[var(--color-brand-cream)]/40"
                 >
                   <td className="px-4 py-2.5 text-[var(--color-brand-ink)] font-medium">{e.counterparty}</td>
                   <td className="px-4 py-2.5 text-right text-[var(--color-brand-ink)] tabular-nums">{formatEur(e.amount)}</td>
@@ -221,7 +223,7 @@ function AgingSection({ arAging, apAging }: { arAging: AgingEntry[]; apAging: Ag
 
   return (
     <section className="mb-10">
-      <h2 className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-3">
+      <h2 className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-3 font-semibold">
         Receivables &amp; payables aging
       </h2>
       <div className="space-y-3">
@@ -267,10 +269,10 @@ function BenchmarksPanel({
 }) {
   return (
     <section className="mb-10">
-      <h2 className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-3">
+      <h2 className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-3 font-semibold">
         Sector context
       </h2>
-      <div className="bg-white border border-[var(--color-brand-line)] rounded-lg p-5 motion-safe:animate-fade-in-up">
+      <div className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] rounded-xl p-5 motion-safe:animate-fade-in-up">
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-xs font-semibold text-[var(--color-brand-navy)]">{benchmarks.sector_name}</p>

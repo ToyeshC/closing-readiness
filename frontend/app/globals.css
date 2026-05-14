@@ -1,23 +1,36 @@
 @import "tailwindcss";
 
 @theme {
-  --color-brand-navy:       #0E1A3A;
-  --color-brand-navy-soft:  #1A2A52;
+  /* Surfaces */
   --color-brand-cream:      #FAF6EE;
   --color-brand-cream-deep: #F1EADC;
+  --color-brand-surface:    #FFFFFF;
+
+  /* Brand */
+  --color-brand-navy:       #0E1A3A;
+  --color-brand-navy-soft:  #1A2A52;
   --color-brand-rose:       #E8A8AE;
   --color-brand-rose-deep:  #C97F86;
+
+  /* Text */
   --color-brand-ink:        #14181F;
   --color-brand-muted:      #6B7280;
   --color-brand-line:       #E5DFD2;
 
+  /* Status — decisive, not timid */
+  --color-status-pass:      #166534;
+  --color-status-pass-bg:   #DCFCE7;
   --color-status-blocker:   #C97F86;
-  --color-status-fail:      #B45309;
+  --color-status-blocker-bg:#FFF1F2;
+  --color-status-fail:      #92400E;
+  --color-status-fail-bg:   #FEF3C7;
   --color-status-warn:      #B45309;
-  --color-status-pass:      #0E1A3A;
+  --color-status-warn-bg:   #FFFBEB;
 
-  --font-display: var(--font-inter);
+  /* Typography */
+  --font-display: var(--font-playfair);
   --font-sans:    var(--font-inter);
+  --font-mono:    ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
 }
 
 :root {
