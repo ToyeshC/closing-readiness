@@ -16,3 +16,4 @@ class AnalysisResult(BaseModel):
     readiness: DataReadinessReport
     advisory_outputs: list[AdvisoryOutput] | None  # None when not advice_ready
     blocked_reason: str | None
+    guided_response: str | None = None  # populated when advice_ready=False
