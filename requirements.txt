@@ -7,4 +7,7 @@ pytest-asyncio
 fastapi
 uvicorn
 httpx
+anthropic
+openai
 python-dotenv
+langwatch

@@ -97,7 +97,10 @@ async def oauth_callback(code: str):
         int(division_id),
     )
 
-    return {"status": "authenticated", "division_id": int(division_id)}
+    # return {"status": "authenticated", "division_id": int(division_id)}
+    # Redirect back to the frontend after successful OAuth — token is now stored locally
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+    return RedirectResponse(url=frontend_url)
 
 
 @router.get("/status")
