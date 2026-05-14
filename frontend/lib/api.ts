@@ -1,6 +1,6 @@
 // Centralized API surface. Replaces inline fetch + API_URL constants across pages.
 
-import type { AnalysisResult, SourceLine } from "../app/types";
+import type { AnalysisResult, FixPlan, SourceLine } from "../app/types";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -38,4 +38,27 @@ export async function fetchSources(checkId: string): Promise<SourceLine[]> {
 
 export function authRedirectUrl(): string {
   return `${API_URL}/auth/exact/redirect`;
+}
+
+export async function fetchFixPlan(): Promise<FixPlan> {
+  const r = await fetch(`${API_URL}/api/v1/fix-plan`, { method: "POST" });
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    throw new Error(`Fix plan failed (${r.status})${text ? `: ${text.slice(0, 200)}` : ""}`);
+  }
+  return r.json();
+}
+
+export async function approveFixPlan(
+  planId: string,
+  approvedItems: string[],
+  notes: string,
+): Promise<{ logged: boolean; plan_id: string; approved_items: string[] }> {
+  const r = await fetch(`${API_URL}/api/v1/fix-plan/${planId}/approve`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approved_items: approvedItems, notes }),
+  });
+  if (!r.ok) throw new Error(`Approve failed: ${r.status}`);
+  return r.json();
 }
