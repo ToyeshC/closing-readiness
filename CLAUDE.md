@@ -19,6 +19,12 @@ Direct Anthropic SDK, model `claude-sonnet-4-6` (override via `ANTHROPIC_MODEL`)
 pytest tests/test_integration.py -v
 ```
 
+If pytest fails at startup with a `protobuf` / "Descriptors cannot be created directly" error, your global Python has `ethpm` or another protobuf-bound package conflicting with langwatch's protobuf 6.x. Workaround:
+```
+PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python pytest tests/test_integration.py -v
+```
+Or use a venv (`python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`) to isolate from system packages. Railway / production aren't affected.
+
 ## Key invariants
 - `advice_ready: bool` on `DataReadinessReport` gates advisory Claude calls — if False, call guided-diagnosis Claude instead (not a hard block)
 - Any check with `status="blocker"` → `advice_ready = False` (gates advice regardless of numeric score)
@@ -51,7 +57,16 @@ Account code ranges: `0xxx`=CAPEX, `1250`=suspense/clearing ("Nog te duiden"), `
 - Amounts: strip `€`, replace `,` with `.`
 - Relations sheet name: `"Invoerblad relaties"`
 
-## Check IDs (locked — must match Emma's frontend)
+## Frontend (Toyesh now owns this too)
+- Next.js 16 + Tailwind v4 + Inter font. Brand: navy/cream/rose mirroring consultenco.nl.
+- Shared components in `frontend/components/`: `Header`, `StatusBadge`, `ScoreGauge`, `KpiTile`, `CheckCard`.
+- Shared helpers in `frontend/lib/`: `format.ts` (nl-NL currency, parens for negatives, compact form), `api.ts` (centralized fetch + `NEXT_PUBLIC_API_URL`).
+- Home is two-mode: pre-run controls if no `analysis_result` in localStorage; executive summary (gauge + KPIs + top issues + re-run drawer) otherwise.
+- Animations: `fade-in-up` (400ms) and `gauge-fill` (700ms), both honor `prefers-reduced-motion`.
+- The `frontend-design-guidelines`, `design-taste`, `page-load-animations`, `number-formatting` skills informed the polish pass. `frontend-design:frontend-design` (build-from-scratch) is NOT used.
+- Brand color tokens live in `frontend/app/globals.css` `@theme` block. Status colors: navy=pass, rose-deep=blocker, amber=fail+warn.
+
+## Check IDs (locked — frontend reads these from the API)
 
 | check_id | severity | trigger |
 |---|---|---|

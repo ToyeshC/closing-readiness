@@ -113,3 +113,140 @@ Non-obvious choices made during the hackathon. Use this when judges ask "why did
 **Choice:** `load_all_from_exact()` added alongside `load_all()` in `data_loader.py`. `analyze.py` picks the loader based on whether an OAuth token exists. Local file loading is not removed.
 
 **Why:** Exact Online OAuth credentials not yet received at time of implementation. Demo must still work with local files. The field mapping is an internal detail of `load_all_from_exact()` — all checks consume `FinancialDataset` regardless of source, so zero check changes needed when switching loaders.
+
+---
+
+# Decisions, Day 5 final session (2026-05-14)
+
+After Emma handed off the full stack, an adversarial audit surfaced ~30 backend and frontend findings. The decisions below cover what we fixed before the demo, what we deferred, and the framing for production. They supersede some earlier choices.
+
+---
+
+## NaN→None fix: root-cause in loader, not band-aid in checks
+
+**Choice:** Replace `df.where(pd.notna(df), None).to_dict(orient="records")` in `data_loader.py` with an explicit post-conversion comprehension that genuinely converts NaN floats to Python `None`. Add a Pydantic field validator on `affected_amount`, `score_after_fix`, `overall_score`, and `RatioResult.value` that rejects NaN as defense-in-depth.
+
+**Why:** The pandas idiom looks correct but doesn't work for numeric columns — pandas re-coerces `None` back to NaN at dtype-preserving substitution. The downstream effect was `vat_reconciliation.description` containing the literal text "GL VAT (€nan) reconciles..." while returning `status="pass"`. A check could patch its own f-string, but every check using `_to_float(nan) → nan` arithmetic would have the same bug. Fixing at the loader (a single 4-line helper `_records_with_none`) means none of the 10 checks need to know about it. Pydantic validators ensure regressions surface as 500 errors instead of silent "nan" text.
+
+**Alternative considered:** Add `if math.isnan(v): v = None` guards inside each check's f-strings. Rejected — bug-prone and would need to be repeated across every numeric format string in the codebase.
+
+---
+
+## Bank coverage: intersect bank dates with business-day set
+
+**Choice:** `bank_dates &= bday_set` before computing coverage in `bank_coverage.py`.
+
+**Why:** The previous formula `len(bank_dates) / total_bdays` allowed weekend/holiday entries (interest accruals, end-of-month closings) to inflate the numerator without raising the denominator. Real-world data has 65 such weekend entries in 2024 — they pushed reported coverage from a true 60% (FAIL) to an inflated 85% (WARN). The check was reporting that coverage is fine when it isn't. After the fix, the demo correctly fails this check, which makes the engine's value clearer to judges.
+
+---
+
+## AR/AP/ratio matching: gross (incl. VAT), not ex-VAT
+
+**Choice:** In `ar_aging.py`, `ap_aging.py`, and `financial_ratios._open_invoices`, compute the match key as `_to_float(bedrag) + _to_float(btw_bedrag)` instead of just `bedrag`.
+
+**Why:** Sales/purchase rows have ex-VAT `bedrag` (col 19) and `btw_bedrag` (col 21) in the positional file. Bank payments are gross. Matching ex-VAT against gross with a 1% tolerance can't survive Dutch 21% VAT — almost every invoice falsely appeared unmatched. The previous test suite passed only because the matching pool was big enough that *some* random bank entries fell within tolerance of *some* random invoices. The fix dropped open AR from €91K to €21K and DSO from 36 days to 8.3 days. The new values are mathematically correct — the old were noise. We had to relax the DSO/DPO plausible-range test bounds because the *bug* shaped the original ranges.
+
+**Alternative considered:** Build a proper bipartite matching algorithm (Hungarian or stable matching) using `(date, counterparty, amount)` triples. Rejected for time — deferred to Phase 8.
+
+---
+
+## OAuth: HttpOnly state cookie, not server-side state table
+
+**Choice:** `/auth/exact/redirect` generates `secrets.token_urlsafe(32)`, sets it as an HttpOnly cookie (`secure=True` when `FRONTEND_URL` starts with `https://`, `samesite="lax"` to survive the OAuth round-trip), and includes the same value in the OAuth authorize URL. `/callback` rejects with 400 if the state query param doesn't match the cookie. Cookie is cleared on successful callback.
+
+**Why:** The single-row token store was hijackable — anyone who reached `/auth/exact/callback?code=fake` could overwrite the legitimate Exact Online tokens with their own. CSRF state is the standard fix. Cookie-based state (vs server-side table) is enough for single-instance deployments and doesn't add a SQLite table that has to be cleaned up. The TTL is the cookie max-age (10 min); attempts after that fail naturally.
+
+**Alternative considered:** Use a `pending_states` SQLite table. Rejected as overengineered for the threat model — cookie-based state covers the same attack and adds zero state to track.
+
+---
+
+## Refresh token concurrency: asyncio.Lock with double-check
+
+**Choice:** Module-level `asyncio.Lock` in `token_store.py`. `get_access_token()` re-reads the row *inside* the lock so the second waiter picks up the fresh token from the first refresh rather than racing.
+
+**Why:** Exact Online rotates refresh tokens on each use. Two concurrent backend calls during the refresh window would both try to consume the same refresh token; the loser gets `invalid_grant` and the next call corrupts state with stale tokens. The lock + re-read pattern is standard for this case; it serializes only the refresh path, not the common-case cache hit.
+
+---
+
+## LLM: direct Anthropic SDK with claude-sonnet-4-6
+
+**Choice:** Swap from OpenRouter pointing at `openai/gpt-oss-120b:free` to direct `anthropic` SDK with `claude-sonnet-4-6`. Model overridable via `ANTHROPIC_MODEL` env var. Drop `openai` from `requirements.txt`.
+
+**Why:** Three reasons:
+1. **Narrative coherence.** The hackathon's "responsible AI" story is built around Claude specifically. Demoing with GPT-OSS-120b proxied via OpenRouter contradicts that framing the moment a judge asks "what model is this?"
+2. **Latency.** The free OpenRouter tier had ~50s per LLM call (two calls worst case = 100s demo lag). Sonnet 4.6 is ~3–5s per call, end-to-end demo flow under 15s.
+3. **Reliability.** Direct Anthropic SDK has fewer hops, fewer proxies, fewer rate-limit surprises.
+
+**Alternative considered:** Stay on OpenRouter but switch the model env var to `anthropic/claude-sonnet-4-5`. Functional but adds a hop and a vendor dependency we don't need.
+
+**Why Sonnet 4.6 specifically (not Haiku, not Opus):**
+- Haiku 4.5 is faster but underpowered for structured-output reasoning over FACT/ASSUMPTION/ADVICE tagging with citations. The output quality matters for the advisory cards.
+- Opus 4.7 is sharper but ~2x slower and ~5x more expensive. Marginal quality lift for a hackathon demo doesn't justify the latency hit.
+- Sonnet 4.6 is the sweet spot — production-grade reasoning, sub-5s, reasonable cost.
+
+---
+
+## Tax PDFs: ship in repo as demo_seed/, not gitignored
+
+**Choice:** Move `CIT_*_filed.pdf`, `VAT_returns_*_filed.pdf`, and `Wage_tax_statement_*_filed.pdf` from `00 Dataroom hackathon/fietsatelier_morgenwind_tax_statements_filed/` (gitignored) to `demo_seed/tax_pdfs/` (committed). The three PDF-based checks read from `os.environ.get("TAX_PDF_DIR", "demo_seed/tax_pdfs")` instead of a hardcoded `_PROJECT_ROOT / "00 Dataroom hackathon/..."` path.
+
+**Why:** The PDFs are explicitly labeled "Fictief document voor AI in Finance hackathon" (confirmed in the extracted text) — they're synthetic, not real client data, safe to commit. Keeping them in the gitignored client-data folder meant Railway deploys silently degraded — three medium-severity checks always returned "Could not extract" warnings on production, dragging the baseline score by 0.30. The env-var path lets us keep the production design clean: API for live bookkeeping, file system for tax filings (which Exact Online doesn't expose), with each path independently configurable.
+
+**Alternative considered:** Build a file-upload widget so the client uploads PDFs at runtime. The right production design — deferred to Phase 8 for time.
+
+---
+
+## Dynamic last-complete-year defaults (no more hardcoded 2024)
+
+**Choice:** Backend `period_start`/`period_end` defaults compute `date.today().year - 1` at request time. Frontend date pickers compute the same in `useState` initializer. Dev scripts (`engine_test.py`, `scripts/smoke_test.py`) accept `--start`/`--end` CLI flags with the same computed default.
+
+**Why:** Hardcoded `date(2024, 1, 1)` defaults age badly — in 2027 the demo would still default to 2024. "Last complete calendar year" is what an accountant naturally reaches for when running a year-end readiness check. Tests stay pinned to 2024 (their fixture data is 2024-specific).
+
+---
+
+## Frontend: mirror consultenco.nl, don't reinvent
+
+**Choice:** Deep navy primary, warm cream surface, soft rose accent. Inter font (close proxy for the marketing site's geometric sans). Status badges: navy=pass, rose-deep=blocker, amber=fail+warn. Score gauge: SVG circular gauge with threshold tick at 60%. Subtle animations (400ms fade-in-up for tiles, 700ms easeOut for gauge fill), honoring `prefers-reduced-motion`.
+
+**Why:** The judging criterion isn't visual design, but a generic-looking SaaS frontend reads "hackathon" while a branded one reads "real firm tool." Mirroring the existing Consult&Co identity gives the demo a coherent "this is a Consult&Co product" feel without inventing a separate visual language. Inter is free, ships well with `next/font/google`, and is close enough to the site's font that judges won't notice.
+
+**Alternative considered:** Bring in a third-party design lib like `nexu-io/open-design`. Rejected — unknown integration risk 24 hours before demo, no time to validate.
+
+**Why subtle motion (not pronounced):** Numbers counting up and card flips are demo-grabby but trigger motion-sickness flags and look gimmicky in a financial-tools context. The subtle pattern (entrance fade + score-fill) feels premium without distracting from the data.
+
+---
+
+## Architecture: keep 3-screen flow, add executive summary as Home post-run state
+
+**Choice:** Home becomes two-mode based on `localStorage`. First visit: pre-run controls (auth + dates + Run). Post-run: executive summary (score gauge + KPI tiles + top-3 issues + CTAs + collapsible re-run drawer). Report and Advisory screens unchanged structurally; refreshed visually with shared components.
+
+**Why:** A new top-level dashboard screen would have meant 4 screens and a navigation rethink. Splitting Home into pre/post states reuses the existing route and gives the demo a clear "before" (Run) and "after" (Summary) pivot. The re-run drawer keeps live re-runs in-place — the demo can show the same flow on a different period without leaving the screen.
+
+---
+
+## Frontend takeover from Emma
+
+**Choice:** Toyesh owns frontend + backend after Emma's Day 5 handoff. Emma confirmed she won't push more to `main`. CLAUDE.md updated to reflect single-owner; team-split language removed.
+
+**Why:** Emma got stuck on the OAuth ngrok IPv6 quirk and other integration glue late on Day 5. Rather than pair-fix under demo pressure, the cleaner move was a full handoff — one person can move faster than two in the last 24h. Her work shipped (FastAPI routes, Next.js scaffold, LangWatch tracing, guided-diagnosis path) and was merged to `main` before the handoff, so this is a clean takeover, not a fork.
+
+---
+
+## Railway: Volume mount at /data, not Postgres
+
+**Choice:** OAuth tokens persist on a Railway Volume mounted at `/data`, with `TOKEN_DB_PATH=/data/oauth_tokens.db`. The token store is still SQLite.
+
+**Why:** Without a Volume, Railway's ephemeral filesystem wipes `oauth_tokens.db` on every redeploy and the user has to re-authenticate Exact Online. Postgres would solve this too but adds a new service, a new connection string, and dependency setup time we don't have. The token store is one row — SQLite on a Volume is fine. The `_get_db_path()` function already reads from `TOKEN_DB_PATH`, so the only required change is the env var.
+
+---
+
+## Deferred deliberately (in scope, dropped for time)
+
+- AR/AP proper bipartite matching by `(date, counterparty, amount)`.
+- Per-request report cache keyed by `report_id` (replaces module-level `_last_report`).
+- Vetted Dutch SME benchmarks reference table (currently the system prompt asks the LLM to "use training knowledge" — hallucination risk).
+- Server-side report storage (replaces 5MB localStorage cap).
+- Dark-mode brand palette.
+- File-upload widget for tax PDFs (would replace `demo_seed/`).
+
+These all have stronger production arguments than what we shipped. They didn't move the demo needle in 24h.

@@ -1,28 +1,30 @@
 # Consult&Co Financial Readiness Tool
 
-Financial data quality gate for Dutch SME closing. Ingests raw bookkeeping exports or live Exact Online data, runs deterministic checks, and gates AI advisory behind a readiness score.
+Financial data quality gate for Dutch SME closing. Ingests bookkeeping data from the Exact Online API (or local Excel/PDF files as fallback), runs deterministic checks, and gates AI advisory behind a readiness score.
 
 **Responsible AI principle:** Claude is never called on dirty data. The harness engine is the gatekeeper.
 
 ## Architecture
 
 ```
-Exact Online API  ──OR──  00 Dataroom hackathon/ (local Excel/PDF files)
+Exact Online API  ──or──  00 Dataroom hackathon/ (local files, dev fallback)
+                          demo_seed/tax_pdfs/    (tax-filing PDFs, committed)
         │
         ▼
 backend/services/data_loader.py     load_all_from_exact() or load_all() → FinancialDataset
         │
         ▼
-backend/services/readiness_engine.py  runs 10 checks + financial ratios → DataReadinessReport
+backend/services/readiness_engine.py  10 checks + financial ratios → DataReadinessReport
+        │ wrapped in @langwatch.trace("readiness_engine")
         │
-        ├─ advice_ready = False → Claude guided-diagnosis (explains what to fix, not a hard block)
-        └─ advice_ready = True  → Claude Sonnet advisory + market comparison
+        ├─ advice_ready=False → call_claude_guided()   (explains what to fix)
+        └─ advice_ready=True  → call_claude()          (FACT/ASSUMPTION/ADVICE)
+        │   both wrapped in @langwatch.trace, both via direct Anthropic SDK
+        ▼
+backend_FastAPI_emma/   FastAPI routes (auth, analyze, sources)
         │
         ▼
-backend_FastAPI_emma/               FastAPI routes (Emma)
-        │
-        ▼
-frontend/                           Next.js UI (Emma)
+frontend/               Next.js 16 + Tailwind v4 (brand: navy/cream/rose)
 ```
 
 ## Checks
@@ -32,122 +34,133 @@ frontend/                           Next.js UI (Emma)
 | Suspense account balance | blocker | Any GL entry on account 1250 |
 | Revenue reconciliation | high | GL 8xxx ≠ sales entries total by >1% |
 | CapEx/OpEx misclassification | medium | Asset keywords in 4xxx accounts >€1,000 |
-| Bank statement coverage | medium | <90% of business days covered |
-| AR aging | medium | Open receivables >90 days old |
+| Bank statement coverage | medium | <90% of business days covered (intersected with bdays) |
+| AR aging | medium | Open receivables >90 days old (matched on gross, incl. VAT) |
 | Timing differences | medium | GL `Periode` ≠ `boekdatum` month |
 | VAT reconciliation | medium | GL VAT ≠ filed return total by >1% |
-| CIT preliminary deviation | medium | Provisional CIT ≠ final assessment by >10% |
+| CIT preliminary deviation | medium | Provisional CIT ≠ final assessment by >10% OR >€5,000 |
 | VAT provisional corrections | medium | Multiple VAT payments for same quarter in tax schedule |
-| AP aging | medium | Open payables >90 days old |
+| AP aging | medium | Open payables >90 days old (matched on gross, incl. VAT) |
 
-## Live Results (Exact Online, division 4453885, FY2024)
+## Running locally
+
+```bash
+# 1. Python deps (anthropic + langwatch + pinned versions)
+pip install -r requirements.txt
+
+# 2. Frontend deps
+cd frontend && npm install && cd ..
+
+# 3. Copy env template, paste real keys into .env
+cp .env.example .env
+# Then edit .env: ANTHROPIC_API_KEY, LANGWATCH_API_KEY, EXACT_CLIENT_SECRET
+
+# 4. Run tests (23 should pass)
+pytest tests/test_integration.py -v
+
+# 5. Engine smoke on local data
+python3 scripts/smoke_test.py --start 2024-01-01 --end 2024-12-31
+
+# 6. Engine smoke on live Exact Online (requires OAuth flow first)
+python3 engine_test.py --start 2024-01-01 --end 2024-12-31
+
+# 7. Full stack
+# Terminal 1 — backend (single worker; the source-lines endpoint reads module state)
+uvicorn backend_FastAPI_emma.main:app --host 127.0.0.1 --port 8000 --reload --workers 1
+
+# Terminal 2 — frontend
+cd frontend && npm run dev
+
+# Terminal 3 — ngrok for OAuth dev (must bind to 127.0.0.1, NOT localhost)
+ngrok http --domain=unwired-sweep-apostle.ngrok-free.dev 127.0.0.1:8000
+
+# Open http://localhost:3000
+```
+
+The OAuth flow lives at `/auth/exact/redirect`. After consent, Exact Online calls back to `/auth/exact/callback?state=<csrf>&code=<auth>`; the backend verifies the state cookie, exchanges the code, stores tokens in `oauth_tokens.db` (or Railway's `/data/oauth_tokens.db`), and redirects the browser to `FRONTEND_URL`.
+
+## Data sources
+
+- **Primary:** Exact Online REST API via OAuth — division ID 4453885 for the demo tenant.
+- **Tax-filing PDFs:** `demo_seed/tax_pdfs/` (committed; ships with the deploy). Path configurable via `TAX_PDF_DIR` env var. Three checks (`vat_reconciliation`, `cit_preliminary_deviation`, `vat_provisional_correction`) read these because Exact Online doesn't expose filed-return amounts.
+- **Offline dev fallback:** `00 Dataroom hackathon/` (gitignored client data). Used by `load_all()` when no OAuth token is present.
+
+## Demo numbers (FY2024)
+
+Approximate, recomputed each run:
 
 | Metric | Value |
 |---|---|
-| Score | 40% |
-| Advice ready | False (suspense blocker) |
-| DSO | 46.7 days |
-| DPO | 365 days (inflated — purchase entries lack due dates in API) |
-| Revenue | €1,112,173 |
-| Gross margin | 91.8% |
-
-## Running
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Copy env template and fill in Exact Online credentials
-cp .env.example .env
-
-# OAuth test server (requires ngrok forwarding :8000)
-uvicorn test_server:app --port 8000
-# Then open http://localhost:8000/auth/exact/redirect in browser
-
-# Run engine on Exact Online data (after OAuth)
-python3 engine_test.py
-
-# Run engine on local files
-python3 -c "
-import asyncio
-from pathlib import Path
-from datetime import date
-from backend.services.data_loader import load_all
-from backend.services.readiness_engine import ReadinessEngine
-
-async def main():
-    ds = await load_all(Path('00 Dataroom hackathon'), date(2024,1,1), date(2024,12,31))
-    report = ReadinessEngine(ds).run()
-    print(f'Score: {report.overall_score:.0%} | Advice ready: {report.advice_ready}')
-    for c in report.checks:
-        fix = f' → fix: {c.score_after_fix:.0%}' if c.score_after_fix else ''
-        print(f'  [{c.status.upper():7}] {c.label}{fix}')
-
-asyncio.run(main())
-"
-
-# Run tests
-pytest tests/test_integration.py -v
-
-# Start FastAPI server (but this may fail on Python <3.10 (Anaconda default))
-# uvicorn backend_FastAPI_emma.main:app --reload
-
-# Start FastAPI server (Python 3.11 required — Pydantic v2 uses float|None syntax)
-/Library/Frameworks/Python.framework/Versions/3.11/bin/uvicorn backend_FastAPI_emma.main:app --reload
-```
-
-## Data
-
-Local files only — not in git. Folder: `00 Dataroom hackathon/` (Fietsatelier Morgenwind BV).
-
-Exact Online API: OAuth credentials in `.env` (gitignored). Division ID: 4453885.
-
-## Team
-
-- **Toyesh** — data engine (`backend/services/`)
-- **Emma** — FastAPI routes + Next.js frontend (`backend_FastAPI_emma/`)
-- **Shared contract** — `backend/models.py` (coordinate before changing)
+| Score | ~40% |
+| Advice ready | False (suspense €39,893 blocker) |
+| DSO | ~8 days (clean book; old code reported 47 due to ex-VAT matching bug) |
+| DPO | ~12 days |
+| Revenue | ~€921K |
+| Gross margin | — (COGS lives in Exact Online, populates there) |
 
 ## Deploy
+
+Two scripts. Both read secrets from `.env` and never echo them.
 
 ### Backend → Railway
 
 ```bash
+# One-time setup
+brew install railway   # or curl -fsSL https://railway.app/install.sh | sh
 railway login
-railway up
+railway init --name consult-co-readiness   # or `railway link --project <id>` if it exists
+
+# Deploy (idempotent — safe to re-run)
+bash scripts/deploy_railway.sh
 ```
 
-Set these env vars in the Railway dashboard (Settings → Variables):
+After the first deploy, mount a Volume at `/data` in the Railway dashboard (Settings → Volumes → Add Volume, mount path `/data`, 1 GB). This is required so OAuth tokens survive container restarts. Railway's CLI doesn't expose volume mounting yet, so this step is manual.
 
-| Variable | Value |
-|---|---|
-| `OPENROUTER_API_KEY` | your OpenRouter key |
-| `OPENROUTER_MODEL` | `openai/gpt-oss-120b:free` |
-| `LANGWATCH_API_KEY` | your LangWatch key |
-| `EXACT_CLIENT_ID` | from Exact Online developer portal |
-| `EXACT_CLIENT_SECRET` | from Exact Online developer portal |
-| `EXACT_REDIRECT_URI` | `https://<railway-domain>/auth/exact/callback` |
-| `FRONTEND_URL` | your Vercel deployment URL |
-| `TOKEN_DB_PATH` | `/data/oauth_tokens.db` (add persistent volume at `/data`) |
-
-> `ANTHROPIC_API_KEY` is not needed — LLM calls go through OpenRouter. Keep it commented in `.env.example` for future reference.
+Then register the Railway domain in Exact Online's developer portal as an allowed redirect URI, update `.env` with the new `EXACT_REDIRECT_URI` and `NEXT_PUBLIC_API_URL`, and re-run `scripts/deploy_railway.sh`.
 
 ### Frontend → Vercel
 
 ```bash
-cd frontend && vercel --prod
+# One-time setup
+npm i -g vercel
+cd frontend && vercel login && cd ..
+
+# Deploy (reads NEXT_PUBLIC_API_URL from root .env)
+bash scripts/deploy_vercel.sh
 ```
 
-Set `NEXT_PUBLIC_API_URL` to the Railway backend URL.
+After Vercel prints its domain, add it to `.env` as `FRONTEND_URL=https://<vercel-domain>` and re-run `scripts/deploy_railway.sh` so the backend's CORS + OAuth post-callback redirect pick it up.
 
----
+### Env vars Railway needs
 
-## Known Issues / Deferred
+The deploy script sets these from `.env`:
 
-- **DPO inflated in Exact Online mode**: `purchaseentry/PurchaseEntries` returns no reliable due dates when data is imported as GL entries. DPO of 365 days is an artefact — AP amounts exist but matching is approximate.
-- **SalesInvoices empty in Exact Online**: Data was imported as GL entries, not via Exact Online's sales module. AR lines from `TransactionLines` (account 1300) are used as fallback. AR aging passes but has no due date data.
-- **VAT/CIT PDF path**: Checks resolve PDFs relative to `__file__.parents[3]`. Will warn (not crash) if PDFs are absent — correct behaviour in Exact Online mode.
-- **Railway deployment**: `POST /readiness` with local files requires `00 Dataroom hackathon/` (gitignored). Override with `DATA_FOLDER=/abs/path`. Exact Online mode works without local files.
+| Variable | Source | Notes |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | `.env` | Set by user |
+| `ANTHROPIC_MODEL` | `.env` (defaults to `claude-sonnet-4-6`) | Override if needed |
+| `LANGWATCH_API_KEY` | `.env` | Set by user |
+| `EXACT_CLIENT_ID` | hardcoded in script | Public identifier |
+| `EXACT_CLIENT_SECRET` | `.env` | Set by user |
+| `EXACT_REDIRECT_URI` | `.env` | Set after first Railway deploy |
+| `FRONTEND_URL` | `.env` | Set after Vercel deploy |
+| `TOKEN_DB_PATH` | hardcoded `/data/oauth_tokens.db` | Requires Volume at `/data` |
+| `TAX_PDF_DIR` | hardcoded `demo_seed/tax_pdfs` | Already in repo |
+| `DATA_FOLDER` | hardcoded `00 Dataroom hackathon` | Only relevant if Exact Online is down |
+
+## Ownership
+
+Toyesh owns the full stack. Emma scaffolded the FastAPI routes and Next.js frontend on Day 5 and handed off; see `EMMA_FRONTEND_HANDOFF.md` for what's done and what's deferred. `backend/models.py` remains the shared contract.
+
+## Known issues / deferred
+
+The full deferred punch list (~30 items: engine, OAuth, frontend, infra) is at the bottom of `/Users/toyesh/.claude/plans/now-based-on-these-witty-wall.md`. Highlights:
+
+- **AR/AP matching is order-dependent** — works on the demo dataset, would need proper bipartite matching for production.
+- **`_last_report` is per-worker** — backend runs with `--workers 1`; multi-worker deploys would 404 on `/readiness/{check_id}/sources` calls that hit a different worker than the POST.
+- **Dutch SME benchmarks in the system prompt are LLM-generated** — would need a vetted reference table for production.
+- **localStorage caps at ~5 MB** — frontend stores the full report there; would need server-side caching for real datasets.
+- **CIT/VAT regexes assume comma decimals** — fail silently on whole-euro PDFs.
 
 ## Hackathon
 

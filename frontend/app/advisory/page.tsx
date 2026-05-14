@@ -1,187 +1,165 @@
-'use client'
+"use client";
 
 // Screen 3 — Advisory / Guided Diagnosis
-// Reads the same AnalysisResult from localStorage that Screen 1 stored.
-//
-// Two modes, determined by readiness.advice_ready:
-//
-//   advice_ready = true  → shows structured advisory outputs from call_claude()
-//                          Each output is tagged FACT / ASSUMPTION / ADVICE with
-//                          a confidence level and a source citation.
-//
-//   advice_ready = false → shows guided diagnosis from call_claude_guided()
-//                          The engine found blockers/failures; instead of a hard
-//                          block we call the LLM to explain each issue and give
-//                          a concrete fix step. Stored in result.guided_response
-//                          as a JSON string: { guidance: [{issue, impact, fix_step}] }
+// Reads AnalysisResult from localStorage and renders in one of two modes
+// based on readiness.advice_ready.
 
-import { useState, useEffect } from 'react'
-import Link from 'next/link'
-import { AnalysisResult, AdvisoryOutput } from '../types'
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import type { AnalysisResult, AdvisoryOutput } from "../types";
+import { Header } from "../../components/Header";
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-// Colour coding for advisory output types (FACT / ASSUMPTION / ADVICE)
-function typeStyle(type: AdvisoryOutput['type']) {
+function typeStyle(type: AdvisoryOutput["type"]) {
   switch (type) {
-    case 'FACT':       return 'bg-blue-100 text-blue-700 border-blue-200'
-    case 'ASSUMPTION': return 'bg-yellow-100 text-yellow-700 border-yellow-200'
-    case 'ADVICE':     return 'bg-violet-100 text-violet-700 border-violet-200'
+    case "FACT":
+      return "bg-[var(--color-brand-navy)]/5 text-[var(--color-brand-navy)] border-[var(--color-brand-navy)]/30";
+    case "ASSUMPTION":
+      return "bg-amber-50 text-amber-800 border-amber-300";
+    case "ADVICE":
+      return "bg-[var(--color-brand-rose)]/15 text-[var(--color-brand-rose-deep)] border-[var(--color-brand-rose)]";
   }
 }
 
-// Colour for confidence level
-function confidenceStyle(conf: AdvisoryOutput['confidence']) {
+function confidenceStyle(conf: AdvisoryOutput["confidence"]) {
   switch (conf) {
-    case 'high':   return 'text-green-600'
-    case 'medium': return 'text-yellow-600'
-    case 'low':    return 'text-red-500'
+    case "high":   return "text-[var(--color-brand-navy)]";
+    case "medium": return "text-amber-700";
+    case "low":    return "text-[var(--color-brand-rose-deep)]";
   }
 }
 
-// ── Sub-component: single advisory output card ───────────────────────────────
-
-function AdvisoryCard({ output }: { output: AdvisoryOutput }) {
+function AdvisoryCard({ output, delay = 0 }: { output: AdvisoryOutput; delay?: number }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-4">
+    <div
+      className="bg-white border border-[var(--color-brand-line)] rounded-lg p-4 motion-safe:animate-fade-in-up"
+      style={{ animationDelay: `${delay}ms` }}
+    >
       <div className="flex items-start gap-3">
-        {/* Type badge: FACT / ASSUMPTION / ADVICE */}
-        <span className={`shrink-0 px-2 py-0.5 text-xs font-semibold rounded border ${typeStyle(output.type)}`}>
+        <span
+          className={`shrink-0 px-2 py-0.5 text-[10px] font-semibold tracking-wider rounded border ${typeStyle(output.type)}`}
+        >
           {output.type}
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-sm text-slate-800 mb-2">{output.statement}</p>
-          {/* Source citation — every FACT must have one per the system prompt rules */}
-          <p className="text-xs text-slate-400">
-            Source: {output.source}
-          </p>
+          <p className="text-sm text-[var(--color-brand-ink)] mb-2">{output.statement}</p>
+          <p className="text-xs text-[var(--color-brand-muted)]">Source: {output.source}</p>
           <p className={`text-xs font-medium mt-1 ${confidenceStyle(output.confidence)}`}>
             Confidence: {output.confidence}
           </p>
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-// ── Sub-component: guided diagnosis (when advice_ready = false) ──────────────
-
 function GuidedDiagnosis({ raw }: { raw: string }) {
-  // guided_response is a JSON string from call_claude_guided().
-  // Expected shape: { guidance: [{ issue, impact, fix_step }] }
-  // We try to parse it; if the LLM returned malformed JSON we fall back to
-  // displaying the raw text so something is always shown in the demo.
-  let items: Array<{ issue: string; impact: string; fix_step: string }> = []
-  let parseError = false
+  let items: Array<{ issue: string; impact: string; fix_step: string }> = [];
+  let parseError = false;
 
   try {
-    const parsed = JSON.parse(raw)
-    items = parsed.guidance || []
+    const parsed = JSON.parse(raw);
+    items = parsed.guidance || [];
   } catch {
-    parseError = true
+    parseError = true;
   }
 
   if (parseError || items.length === 0) {
-    // Fallback: render raw text — better than a blank screen during the demo
     return (
-      <div className="bg-white border border-slate-200 rounded-lg p-5 whitespace-pre-wrap text-sm text-slate-700">
+      <div className="bg-white border border-[var(--color-brand-line)] rounded-lg p-5 whitespace-pre-wrap text-sm text-[var(--color-brand-ink)]">
         {raw}
       </div>
-    )
+    );
   }
 
   return (
     <div className="space-y-4">
       {items.map((item, i) => (
-        <div key={i} className="bg-white border border-orange-200 rounded-lg p-4">
-          <p className="text-sm font-semibold text-slate-800 mb-1">
+        <div
+          key={i}
+          className="bg-white border border-[var(--color-brand-rose)] rounded-lg p-4 motion-safe:animate-fade-in-up"
+          style={{ animationDelay: `${i * 60}ms` }}
+        >
+          <p className="text-sm font-semibold text-[var(--color-brand-navy)] mb-1.5">
             {i + 1}. {item.issue}
           </p>
-          {/* Why it matters for closing */}
-          <p className="text-sm text-slate-500 mb-2">
-            <span className="font-medium text-slate-600">Impact: </span>
+          <p className="text-sm text-[var(--color-brand-muted)] mb-3">
+            <span className="font-medium text-[var(--color-brand-ink)]">Impact:</span>{" "}
             {item.impact}
           </p>
-          {/* Concrete action the user needs to take */}
-          <div className="bg-orange-50 border border-orange-100 rounded p-3">
-            <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide mb-1">
+          <div className="bg-[var(--color-brand-rose)]/10 border border-[var(--color-brand-rose)]/40 rounded p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-brand-rose-deep)] mb-1">
               Fix step
             </p>
-            <p className="text-sm text-slate-700">{item.fix_step}</p>
+            <p className="text-sm text-[var(--color-brand-ink)]">{item.fix_step}</p>
           </div>
         </div>
       ))}
     </div>
-  )
+  );
 }
 
-// ── Main page component ──────────────────────────────────────────────────────
-
 export default function AdvisoryPage() {
-  const [result, setResult] = useState<AnalysisResult | null>(null)
+  const [result, setResult] = useState<AnalysisResult | null>(null);
 
-  // Read the result that Screen 1 stored after running the check
   useEffect(() => {
-    const raw = localStorage.getItem('analysis_result')
-    if (raw) setResult(JSON.parse(raw))
-  }, [])
+    try {
+      const raw = localStorage.getItem("analysis_result");
+      if (raw) setResult(JSON.parse(raw));
+    } catch {
+      // ignore
+    }
+  }, []);
 
   if (!result) {
     return (
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-center text-slate-400">
-          <p className="text-lg mb-3">No readiness report yet.</p>
-          <Link href="/" className="text-blue-600 underline text-sm">
-            ← Run a check first
-          </Link>
+      <main className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col">
+        <Header current="advisory" />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center text-[var(--color-brand-muted)]">
+            <p className="text-lg mb-3">No readiness report yet.</p>
+            <Link
+              href="/"
+              className="text-[var(--color-brand-navy)] hover:text-[var(--color-brand-rose-deep)] underline text-sm"
+            >
+              ← Run a check first
+            </Link>
+          </div>
         </div>
       </main>
-    )
+    );
   }
 
-  const { readiness, advisory_outputs, guided_response } = result
+  const { readiness, advisory_outputs, guided_response, blocked_reason } = result;
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="bg-slate-900 text-white px-8 py-5 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Consult&amp;Co</h1>
-          <p className="text-slate-400 text-sm mt-0.5">
-            {readiness.advice_ready ? 'Advisory Output' : 'Guided Diagnosis'} — Fietsatelier Morgenwind BV
-          </p>
-        </div>
-        <Link href="/report" className="text-slate-400 hover:text-white text-sm underline">
-          ← Back to report
-        </Link>
-      </header>
+    <main className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col">
+      <Header current="advisory" />
 
-      <div className="max-w-3xl mx-auto px-6 py-10">
-
+      <div className="max-w-3xl mx-auto w-full px-6 sm:px-8 py-10 flex-1">
         {readiness.advice_ready ? (
-          // ── Advisory mode: data passed all blockers, Claude gave structured analysis ──
           <>
-            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-              Data quality checks passed — advisory outputs below are grounded in verified data.
-              Each output is tagged FACT, ASSUMPTION, or ADVICE with a source citation.
+            <div className="mb-6 p-4 bg-[var(--color-brand-navy)]/5 border border-[var(--color-brand-navy)]/20 rounded-lg text-sm text-[var(--color-brand-navy)] motion-safe:animate-fade-in-up">
+              Data-quality checks passed — advisory outputs below are grounded in verified data.
+              Each is tagged FACT, ASSUMPTION, or ADVICE with a source citation.
             </div>
             <div className="space-y-3">
               {(advisory_outputs || []).map((output, i) => (
-                <AdvisoryCard key={i} output={output} />
+                <AdvisoryCard key={i} output={output} delay={i * 60} />
               ))}
               {(!advisory_outputs || advisory_outputs.length === 0) && (
-                <p className="text-slate-400 text-sm">No advisory outputs returned.</p>
+                <p className="text-[var(--color-brand-muted)] text-sm">
+                  No advisory outputs returned. The LLM call may have failed — check LangWatch traces.
+                </p>
               )}
             </div>
           </>
         ) : (
-          // ── Guided diagnosis mode: blockers found, LLM explains what to fix ──
           <>
-            <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg">
-              <p className="text-sm font-semibold text-orange-800 mb-1">
-                Advisory blocked — {result.blocked_reason}
+            <div className="mb-6 p-4 bg-[var(--color-brand-rose)]/15 border border-[var(--color-brand-rose)] rounded-lg motion-safe:animate-fade-in-up">
+              <p className="text-sm font-semibold text-[var(--color-brand-rose-deep)] mb-1">
+                Advisory blocked{blocked_reason ? ` — ${blocked_reason}` : ""}
               </p>
-              <p className="text-sm text-orange-700">
+              <p className="text-sm text-[var(--color-brand-ink)]">
                 The engine found issues that must be resolved before a closing advisory can run.
                 Below is an AI-generated fix guide based on the failing checks.
               </p>
@@ -189,12 +167,11 @@ export default function AdvisoryPage() {
             {guided_response ? (
               <GuidedDiagnosis raw={guided_response} />
             ) : (
-              <p className="text-slate-400 text-sm">No guided response available.</p>
+              <p className="text-[var(--color-brand-muted)] text-sm">No guided response available.</p>
             )}
           </>
         )}
-
       </div>
     </main>
-  )
+  );
 }
