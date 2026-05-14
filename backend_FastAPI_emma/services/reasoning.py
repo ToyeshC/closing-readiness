@@ -1,12 +1,23 @@
 import json
 import os
 
-import anthropic
+from openai import OpenAI
+
+# import anthropic  # uncomment to switch back to Anthropic SDK
 
 from backend.models import DataReadinessReport
 from backend_FastAPI_emma.schemas import AdvisoryOutput
 
-_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+# --- Active: OpenRouter (OpenAI-compatible) ---
+_client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+)
+_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")
+
+# --- Inactive: Anthropic SDK (uncomment + comment block above to switch) ---
+# _anthropic_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+# _MODEL = "claude-sonnet-4-6"
 
 SYSTEM_PROMPT = """You are a financial analysis assistant for a Dutch SME advisory firm (Consult&Co.).
 You have been given structured financial data from Fietsatelier Morgenwind BV that has passed a \
@@ -35,7 +46,12 @@ Return format:
       "confidence": "high|medium|low"
     }
   ]
-}"""
+}
+
+After presenting the findings, add a section comparing the company's financial \
+ratios to typical Dutch SME benchmarks for a bicycle workshop of similar revenue scale \
+(~€920K/year). Use your training knowledge about Dutch SME financial benchmarks. \
+Label this section clearly: 'Industry context (AI-estimated — for indicative purposes only).'"""
 
 
 def _summarise(entries: list[dict]) -> dict:
@@ -72,19 +88,29 @@ def _build_context(report: DataReadinessReport) -> str:
 def call_claude(report: DataReadinessReport) -> list[AdvisoryOutput]:
     context = _build_context(report)
 
-    message = _client.messages.create(
-        model="claude-sonnet-4-20250514",
+    # --- OpenRouter path ---
+    message = _client.chat.completions.create(
+        model=_MODEL,
         max_tokens=1000,
-        system=SYSTEM_PROMPT,
         messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": f"Analyse this financial dataset and produce structured outputs:\n\n{context}",
-            }
+            },
         ],
     )
+    raw = message.choices[0].message.content.strip()
 
-    raw = message.content[0].text.strip()
+    # --- Anthropic path (uncomment to switch) ---
+    # message = _anthropic_client.messages.create(
+    #     model=_MODEL,
+    #     max_tokens=1000,
+    #     system=SYSTEM_PROMPT,
+    #     messages=[{"role": "user", "content": f"Analyse this financial dataset:\n\n{context}"}],
+    # )
+    # raw = message.content[0].text.strip()
+
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
 
@@ -92,3 +118,41 @@ def call_claude(report: DataReadinessReport) -> list[AdvisoryOutput]:
         return [AdvisoryOutput(**o) for o in json.loads(raw)["outputs"]]
     except Exception:
         return []
+
+
+def call_claude_guided(report: DataReadinessReport) -> str:
+    """Called when advice_ready=False. Returns JSON guidance on what to fix."""
+    issues = [
+        {
+            "check": c.check_id,
+            "status": c.status,
+            "description": c.description,
+            "amount": c.affected_amount,
+        }
+        for c in report.checks
+        if c.status in ("fail", "blocker", "warn")
+    ]
+    prompt = f"""You are a financial data quality advisor.
+The readiness engine found these issues preventing a closing advisory:
+
+{json.dumps(issues, indent=2)}
+
+For each issue: (1) explain in plain English what is wrong, (2) why it matters for closing,
+(3) the exact step to fix it. Be direct. Prioritise blockers first.
+Return JSON: {{"guidance": [{{"issue": str, "impact": str, "fix_step": str}}]}}"""
+
+    # --- OpenRouter path ---
+    resp = _client.chat.completions.create(
+        model=_MODEL,
+        max_tokens=1024,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.choices[0].message.content
+
+    # --- Anthropic path (uncomment to switch) ---
+    # resp = _anthropic_client.messages.create(
+    #     model=_MODEL,
+    #     max_tokens=1024,
+    #     messages=[{"role": "user", "content": prompt}],
+    # )
+    # return resp.content[0].text
