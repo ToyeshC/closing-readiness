@@ -1,12 +1,21 @@
 import json
 import os
 
+import langwatch
 from openai import OpenAI
 
 # import anthropic  # uncomment to switch back to Anthropic SDK
 
 from backend.models import DataReadinessReport
 from backend_FastAPI_emma.schemas import AdvisoryOutput
+
+# Initialise LangWatch observability. Reads LANGWATCH_API_KEY from env (set by
+# load_dotenv() in main.py). Every @langwatch.trace()-decorated call will appear
+# in the LangWatch dashboard, showing: which Claude path fired (advisory vs
+# guided-diagnosis), the full prompt/response, latency, and token counts.
+# This makes the responsible-AI guardrail visible during the demo — judges can
+# see live traces of the engine refusing to call advisory Claude when data is dirty.
+langwatch.setup()
 
 # --- Active: OpenRouter (OpenAI-compatible) ---
 _client = OpenAI(
@@ -85,6 +94,7 @@ def _build_context(report: DataReadinessReport) -> str:
     )
 
 
+@langwatch.trace(name="advisory_call")
 def call_claude(report: DataReadinessReport) -> list[AdvisoryOutput]:
     context = _build_context(report)
 
@@ -120,6 +130,7 @@ def call_claude(report: DataReadinessReport) -> list[AdvisoryOutput]:
         return []
 
 
+@langwatch.trace(name="guided_diagnosis_call")
 def call_claude_guided(report: DataReadinessReport) -> str:
     """Called when advice_ready=False. Returns JSON guidance on what to fix."""
     issues = [
