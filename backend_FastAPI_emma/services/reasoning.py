@@ -1,32 +1,27 @@
 import json
+import logging
 import os
 
+import anthropic
 import langwatch
-from openai import OpenAI
-
-# import anthropic  # uncomment to switch back to Anthropic SDK
 
 from backend.models import DataReadinessReport
 from backend_FastAPI_emma.schemas import AdvisoryOutput
 
+log = logging.getLogger(__name__)
+
 # Initialise LangWatch observability. Reads LANGWATCH_API_KEY from env (set by
-# load_dotenv() in main.py). Every @langwatch.trace()-decorated call will appear
-# in the LangWatch dashboard, showing: which Claude path fired (advisory vs
-# guided-diagnosis), the full prompt/response, latency, and token counts.
-# This makes the responsible-AI guardrail visible during the demo — judges can
-# see live traces of the engine refusing to call advisory Claude when data is dirty.
+# load_dotenv() in main.py). Every @langwatch.trace()-decorated call appears in
+# the LangWatch dashboard with the full prompt/response, latency, and token
+# counts. Combined with the @langwatch.trace on ReadinessEngine.run(), the demo
+# shows both the guardrail and the LLM call as spans of one trace.
 langwatch.setup()
 
-# --- Active: OpenRouter (OpenAI-compatible) ---
-_client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-)
-_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")
-
-# --- Inactive: Anthropic SDK (uncomment + comment block above to switch) ---
-# _anthropic_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
-# _MODEL = "claude-sonnet-4-6"
+# Direct Anthropic SDK — the "responsible AI on Claude" narrative requires
+# Claude actually be the model, not GPT-OSS via OpenRouter. Sonnet 4.6 balances
+# reasoning capability for FACT/ASSUMPTION/ADVICE tagging with ~3-5s latency.
+_anthropic_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 SYSTEM_PROMPT = """You are a financial analysis assistant for a Dutch SME advisory firm (Consult&Co.).
 You have been given structured financial data from Fietsatelier Morgenwind BV that has passed a \
@@ -98,35 +93,30 @@ def _build_context(report: DataReadinessReport) -> str:
 def call_claude(report: DataReadinessReport) -> list[AdvisoryOutput]:
     context = _build_context(report)
 
-    # --- OpenRouter path ---
-    message = _client.chat.completions.create(
+    message = _anthropic_client.messages.create(
         model=_MODEL,
         max_tokens=1000,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"Analyse this financial dataset and produce structured outputs:\n\n{context}",
-            },
-        ],
+        system=SYSTEM_PROMPT,
+        messages=[{
+            "role": "user",
+            "content": f"Analyse this financial dataset and produce structured outputs:\n\n{context}",
+        }],
     )
-    raw = message.choices[0].message.content.strip()
+    raw = message.content[0].text.strip()
 
-    # --- Anthropic path (uncomment to switch) ---
-    # message = _anthropic_client.messages.create(
-    #     model=_MODEL,
-    #     max_tokens=1000,
-    #     system=SYSTEM_PROMPT,
-    #     messages=[{"role": "user", "content": f"Analyse this financial dataset:\n\n{context}"}],
-    # )
-    # raw = message.content[0].text.strip()
-
+    # Some models wrap JSON in ```...``` fences; strip if present.
     if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+        try:
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+        except IndexError:
+            # Single-line fenced or malformed — fall through to JSON parse failure path.
+            pass
 
     try:
         return [AdvisoryOutput(**o) for o in json.loads(raw)["outputs"]]
-    except Exception:
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+        # Don't swallow silently — log so the dashboard / server logs show the failure.
+        log.error("Advisory parse failed: %s | raw[:500]=%r", e, raw[:500])
         return []
 
 
@@ -152,18 +142,9 @@ For each issue: (1) explain in plain English what is wrong, (2) why it matters f
 (3) the exact step to fix it. Be direct. Prioritise blockers first.
 Return JSON: {{"guidance": [{{"issue": str, "impact": str, "fix_step": str}}]}}"""
 
-    # --- OpenRouter path ---
-    resp = _client.chat.completions.create(
+    resp = _anthropic_client.messages.create(
         model=_MODEL,
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
     )
-    return resp.choices[0].message.content
-
-    # --- Anthropic path (uncomment to switch) ---
-    # resp = _anthropic_client.messages.create(
-    #     model=_MODEL,
-    #     max_tokens=1024,
-    #     messages=[{"role": "user", "content": prompt}],
-    # )
-    # return resp.content[0].text
+    return resp.content[0].text

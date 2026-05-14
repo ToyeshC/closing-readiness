@@ -1,3 +1,4 @@
+import asyncio
 import os
 from datetime import date
 from pathlib import Path
@@ -19,8 +20,19 @@ router = APIRouter()
 
 DATA_FOLDER = Path(os.environ.get("DATA_FOLDER", "00 Dataroom hackathon"))
 
-# Module-level cache — holds the last report for source-line lookups
+# Module-level cache — holds the last report for source-line lookups.
+# IMPORTANT: this is per-worker state. Run with `uvicorn --workers 1` for the
+# demo; on multi-worker deploys the GET /readiness/{check_id}/sources endpoint
+# may 404 when it hits a different worker than the POST that produced the report.
+# Deferred: TTL'd dict keyed by a report_id returned in the POST response.
 _last_report: DataReadinessReport | None = None
+
+
+def _default_period() -> tuple[date, date]:
+    """Last complete calendar year — recomputed per request, never hardcoded."""
+    today = date.today()
+    last_year = today.year - 1
+    return date(last_year, 1, 1), date(last_year, 12, 31)
 
 
 def _to_report_out(report: DataReadinessReport) -> DataReadinessReportOut:
@@ -61,10 +73,23 @@ def _to_report_out(report: DataReadinessReport) -> DataReadinessReportOut:
 
 @router.post("/readiness", response_model=AnalysisResult)
 async def run_readiness(
-    period_start: date = date(2024, 1, 1),
-    period_end: date = date(2024, 12, 31),
+    period_start: date | None = None,
+    period_end: date | None = None,
 ):
     global _last_report
+
+    # Defaults computed at request time, not at import time, so the system
+    # doesn't silently show stale years as more time passes.
+    default_start, default_end = _default_period()
+    if period_start is None:
+        period_start = default_start
+    if period_end is None:
+        period_end = default_end
+    if period_end < period_start:
+        raise HTTPException(
+            status_code=400,
+            detail="period_end must be on or after period_start.",
+        )
 
     # Use live Exact Online data if OAuth token is present, otherwise fall back to
     # local files — keeps demo working without credentials and enables live data
@@ -86,7 +111,8 @@ async def run_readiness(
         # Returns structured fix instructions per failing check rather than a hard block.
         blockers = [c for c in report.checks if c.status == "blocker"]
         reason = f"{len(blockers)} blocker(s): " + ", ".join(c.label for c in blockers)
-        guidance = call_claude_guided(report)
+        # Run the (sync) LLM call off the event loop so it doesn't block other requests.
+        guidance = await asyncio.to_thread(call_claude_guided, report)
         return AnalysisResult(
             readiness=_to_report_out(report),
             advisory_outputs=[],
@@ -94,7 +120,7 @@ async def run_readiness(
             guided_response=guidance,
         )
 
-    advisory_outputs = call_claude(report)
+    advisory_outputs = await asyncio.to_thread(call_claude, report)
     return AnalysisResult(
         readiness=_to_report_out(report),
         advisory_outputs=advisory_outputs,

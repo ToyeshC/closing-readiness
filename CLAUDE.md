@@ -2,21 +2,17 @@
 
 Closing-readiness + data quality engine for Fietsatelier Morgenwind BV (Dutch bicycle workshop). Responsible AI demo: system refuses to call Claude if data is dirty.
 
-## Team split
-- **Toyesh:** data ingestion (`data_loader.py`, `load_all_from_exact()`), normalization (`normalizer.py`), readiness engine (`readiness_engine.py`), 10 check modules, financial ratios (`financial_ratios.py`), tests
-- **Emma:** FastAPI routes (`backend_FastAPI_emma/`), Anthropic API calls (`reasoning.py`), Next.js frontend
-- **Shared:** `models.py` — never change unilaterally; coordinate with partner first
+## Ownership (as of Day 5, post-handoff)
+Toyesh owns everything: backend (`backend/`), FastAPI routes (`backend_FastAPI_emma/`), Next.js frontend (`frontend/`), deployment. Emma scaffolded the FastAPI + frontend layers then handed off. `models.py` is the shared contract.
 
-## Branch workflow
-- Branches: `toyesh`, `emma`, `main`
-- Only tested, verified code goes to `main` — merge 1–2x per day
-- Always `git fetch origin && git merge origin/main` into your branch before starting
-- Never push to `main` without a heads-up to partner
+## Data sources
+- **Primary:** Exact Online REST API via OAuth (`backend/services/data_loader.py:load_all_from_exact`). The `/api/v1/readiness` endpoint auto-detects authentication and uses live data when a token is stored.
+- **Tax filing PDFs:** `demo_seed/tax_pdfs/` (committed, ships to Railway). Path configurable via `TAX_PDF_DIR` env var. These have no Exact Online equivalent — production design would expose a file-upload widget for client-supplied filings.
+- **Offline dev fallback:** `00 Dataroom hackathon/` (gitignored). Used by `load_all()` when no OAuth token is present.
+- OAuth redirect URI: `https://unwired-sweep-apostle.ngrok-free.dev/auth/exact/callback` (dev / ngrok static domain). Production registers the Railway domain.
 
-## Data
-- Local files in `00 Dataroom hackathon/` — NEVER push to git (financial client data, already in .gitignore)
-- Exact Online API = Day 4/5 integration target; local files remain fallback for demo
-- OAuth redirect: `https://unwired-sweep-apostle.ngrok-free.dev/auth/exact/callback` (ngrok static domain)
+## LLM
+Direct Anthropic SDK, model `claude-sonnet-4-6` (override via `ANTHROPIC_MODEL`). LangWatch tracing wraps both `call_claude` / `call_claude_guided` *and* `ReadinessEngine.run()` so the responsible-AI guardrail itself appears as a span in the dashboard.
 
 ## Test command
 ```
@@ -25,10 +21,12 @@ pytest tests/test_integration.py -v
 
 ## Key invariants
 - `advice_ready: bool` on `DataReadinessReport` gates advisory Claude calls — if False, call guided-diagnosis Claude instead (not a hard block)
-- Any check with `severity="blocker"` → `advice_ready = False`
+- Any check with `status="blocker"` → `advice_ready = False` (gates advice regardless of numeric score)
 - Scoring: `1.0 - penalties`; high=0.20, medium=0.10, low=0.03; ready at score ≥ 0.6
-- `DataReadinessReport.ratios: FinancialRatios | None` — always populated from `financial_ratios.py`; fields: `dso_days`, `dpo_days`, `working_capital`, `revenue_period`, `purchases_period`, `open_ar`, `open_ap`; each is a `RatioResult(value, reliable, note)`
-- Emma's `AnalysisResult` schema must expose `ratios` to the frontend — coordinate on field naming
+- `DataReadinessReport.ratios: FinancialRatios | None` — always populated from `financial_ratios.py`. Fields: `dso_days`, `dpo_days`, `working_capital`, `revenue_period`, `purchases_period`, `open_ar`, `open_ap`, `gross_profit_margin`; each is a `RatioResult(value, reliable, note)`.
+- `AnalysisResult` schema in `backend_FastAPI_emma/schemas.py` exposes `readiness.ratios` to the frontend (already wired).
+- AR/AP matching and `compute_ratios._open_invoices` match on **gross** (`bedrag + btw_bedrag`) so Dutch 21% VAT doesn't break invoice-to-bank reconciliation.
+- Pydantic models reject NaN floats at the boundary (`models.py:_no_nan`); the loader (`data_loader.py:_records_with_none`) converts pandas NaN → Python None before that boundary.
 
 ## Dutch column names (confirmed from actual files)
 | File type | Column | Meaning |
@@ -68,4 +66,20 @@ Account code ranges: `0xxx`=CAPEX, `1250`=suspense/clearing ("Nog te duiden"), `
 | `vat_provisional_correction` | medium | multiple VAT payments per quarter in tax schedule |
 | `ap_aging_stale` | medium | open payables >90 days |
 
-Note: `draft_entries` does NOT exist — dropped Day 1 (no status column in data). `todo_discrepancy` removed Day 5 — was a local-filesystem concept with no Exact Online equivalent. Tell Emma to remove both `draft_entries` and `todo_discrepancy` from her frontend.
+Note: `draft_entries` does NOT exist — dropped Day 1 (no status column in data). `todo_discrepancy` removed Day 5 — was a local-filesystem concept with no Exact Online equivalent. Frontend already aligned.
+
+## OAuth security
+`/auth/exact/redirect` sets a short-lived HttpOnly state cookie and includes the same value in the OAuth authorize URL. `/auth/exact/callback` rejects with 400 if the state query param doesn't match the cookie (CSRF guard for the single-row token store). Token refreshes are serialized through `_refresh_lock` so concurrent requests don't race on the rotating refresh token.
+
+## Running locally
+```bash
+# Backend
+uvicorn backend_FastAPI_emma.main:app --host 127.0.0.1 --port 8000 --reload --workers 1
+
+# Frontend
+cd frontend && npm run dev
+
+# ngrok for OAuth (must use 127.0.0.1, NOT localhost — macOS resolves localhost to ::1)
+ngrok http --domain=unwired-sweep-apostle.ngrok-free.dev 127.0.0.1:8000
+```
+`--workers 1` is important: the `/readiness/{check_id}/sources` endpoint reads a module-level cache populated by the POST handler.

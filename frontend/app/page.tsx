@@ -26,8 +26,12 @@ export default function Home() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null)
   const [divisionId, setDivisionId] = useState<number | null>(null)
 
-  const [periodStart, setPeriodStart] = useState('2024-01-01')
-  const [periodEnd, setPeriodEnd] = useState('2024-12-31')
+  // Default to the last complete calendar year, computed at render time so the
+  // app doesn't show stale years as time passes. User can still override via
+  // the date pickers; backend also computes the same default if dates are omitted.
+  const _lastYear = new Date().getFullYear() - 1
+  const [periodStart, setPeriodStart] = useState(`${_lastYear}-01-01`)
+  const [periodEnd, setPeriodEnd] = useState(`${_lastYear}-12-31`)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 

@@ -22,12 +22,17 @@ def check(dataset: FinancialDataset) -> ReadinessCheck:
             source_lines=[],
         )
 
+    bday_set = {d.date() for d in bdays}
     bank_dates = {
         _to_date(r.get("datum"))
         for r in dataset.bank_entries
         if r.get("datum") is not None
         and period_start <= _to_date(r.get("datum")) <= period_end
     }
+    # Weekend/holiday entries (interest accruals etc.) inflate the numerator
+    # without raising the business-day denominator. Intersect with the
+    # bday set so coverage measures real working-day presence.
+    bank_dates &= bday_set
 
     coverage = len(bank_dates) / total_bdays
 

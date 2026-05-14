@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -10,18 +11,14 @@ from backend.services.normalizer import _to_date, _to_float
 logger = logging.getLogger(__name__)
 
 _VAT_REGEX = re.compile(r"Te betalen[^\d]*([\d.,]+)")
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_VAT_PDF = (
-    _PROJECT_ROOT
-    / "00 Dataroom hackathon"
-    / "fietsatelier_morgenwind_tax_statements_filed"
-    / "VAT_returns_2024_filed.pdf"
-)
+# Resolved at call time so env-var overrides (Railway, tests) take effect.
+def _vat_pdf_path() -> Path:
+    return Path(os.environ.get("TAX_PDF_DIR", "demo_seed/tax_pdfs")) / "VAT_returns_2024_filed.pdf"
 
 
 def _extract_pdf_vat() -> float | None:
     try:
-        with pdfplumber.open(_VAT_PDF) as pdf:
+        with pdfplumber.open(_vat_pdf_path()) as pdf:
             text = "\n".join(page.extract_text() or "" for page in pdf.pages)
         matches = _VAT_REGEX.findall(text)
         if not matches:

@@ -38,6 +38,16 @@ _INVOICE_COLUMNS = {
 }
 
 
+def _records_with_none(df: pd.DataFrame) -> list[dict]:
+    # pd.DataFrame.where(notna, None) leaves NaN in numeric columns because pandas
+    # coerces None back to NaN during dtype-preserving substitution. Do the
+    # substitution after to_dict() so the result has real Python None.
+    return [
+        {k: (None if (v is None or (isinstance(v, float) and pd.isna(v))) else v) for k, v in row.items()}
+        for row in df.to_dict(orient="records")
+    ]
+
+
 def _load_excel(path: Path, **kwargs) -> list[dict]:
     """Load an Excel file with standard headers. Returns empty list on any error."""
     try:
@@ -48,7 +58,7 @@ def _load_excel(path: Path, **kwargs) -> list[dict]:
             .strip("_")
             for c in df.columns
         ]
-        return df.where(pd.notna(df), None).to_dict(orient="records")
+        return _records_with_none(df)
     except Exception as e:
         logger.warning("Failed to load %s: %s", path.name, e)
         return []
@@ -60,7 +70,7 @@ def _load_excel_positional(path: Path, col_map: dict[int, str]) -> list[dict]:
         df = pd.read_excel(path, header=None)
         rename = {i: col_map.get(i, f"col_{i}") for i in range(len(df.columns))}
         df = df.rename(columns=rename)
-        return df.where(pd.notna(df), None).to_dict(orient="records")
+        return _records_with_none(df)
     except Exception as e:
         logger.warning("Failed to load %s: %s", path.name, e)
         return []
@@ -71,7 +81,7 @@ def _load_csv(path: Path, sep: str = ";") -> list[dict]:
     try:
         df = pd.read_csv(path, sep=sep)
         df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
-        return df.where(pd.notna(df), None).to_dict(orient="records")
+        return _records_with_none(df)
     except Exception as e:
         logger.warning("Failed to load %s: %s", path.name, e)
         return []

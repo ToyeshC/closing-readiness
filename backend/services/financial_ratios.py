@@ -39,7 +39,8 @@ def _open_invoices(
     total = 0.0
     for r in invoices:
         d = _to_date(r.get("boekdatum"))
-        amount = _to_float(r.get("bedrag"))
+        # Invoice bedrag is ex-VAT; bank entries are gross. Match on gross.
+        amount = _to_float(r.get("bedrag")) + _to_float(r.get("btw_bedrag"))
         if amount <= 0:
             continue
         if not (period_start <= d <= period_end):
