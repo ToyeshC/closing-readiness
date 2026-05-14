@@ -1,6 +1,16 @@
-from pydantic import BaseModel
+import math
+from pydantic import BaseModel, field_validator
 from typing import Literal
 from datetime import date
+
+
+def _no_nan(v):
+    # Pydantic v2 accepts NaN into float fields without complaint; that lets
+    # bad data flow into descriptions as the literal string "nan". Catch it
+    # at the model boundary instead.
+    if v is not None and isinstance(v, float) and math.isnan(v):
+        raise ValueError("NaN not allowed")
+    return v
 
 
 class SourceLine(BaseModel):
@@ -22,6 +32,8 @@ class ReadinessCheck(BaseModel):
     affected_amount: float | None
     source_lines: list[SourceLine]
     score_after_fix: float | None = None   # overall_score if this check passed; None for passing checks
+
+    _check_no_nan = field_validator("affected_amount", "score_after_fix", mode="after")(_no_nan)
 
 
 class FinancialDataset(BaseModel):
@@ -45,6 +57,8 @@ class RatioResult(BaseModel):
     reliable: bool
     note: str | None = None    # explains unreliability or data caveat
 
+    _check_no_nan = field_validator("value", mode="after")(_no_nan)
+
 
 class FinancialRatios(BaseModel):
     dso_days: RatioResult                  # Days Sales Outstanding
@@ -63,3 +77,5 @@ class DataReadinessReport(BaseModel):
     advice_ready: bool         # True only if zero blockers
     checks: list[ReadinessCheck]
     ratios: FinancialRatios | None = None
+
+    _check_no_nan = field_validator("overall_score", mode="after")(_no_nan)

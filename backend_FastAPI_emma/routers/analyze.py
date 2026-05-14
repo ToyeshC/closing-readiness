@@ -1,0 +1,153 @@
+import asyncio
+import os
+from datetime import date
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException
+
+from backend.models import DataReadinessReport, SourceLine
+from backend.services.data_loader import load_all, load_all_from_exact
+from backend.services.readiness_engine import ReadinessEngine
+from backend.services.token_store import get_access_token, get_division_id, is_authenticated
+from backend_FastAPI_emma.schemas import (
+    AnalysisResult,
+    DataReadinessReportOut,
+    SourceLineOut,
+)
+from backend_FastAPI_emma.services.reasoning import call_claude, call_claude_guided
+
+router = APIRouter()
+
+DATA_FOLDER = Path(os.environ.get("DATA_FOLDER", "00 Dataroom hackathon"))
+
+# Module-level cache — holds the last report for source-line lookups.
+# IMPORTANT: this is per-worker state. Run with `uvicorn --workers 1` for the
+# demo; on multi-worker deploys the GET /readiness/{check_id}/sources endpoint
+# may 404 when it hits a different worker than the POST that produced the report.
+# Deferred: TTL'd dict keyed by a report_id returned in the POST response.
+_last_report: DataReadinessReport | None = None
+
+
+def _default_period() -> tuple[date, date]:
+    """Last complete calendar year — recomputed per request, never hardcoded."""
+    today = date.today()
+    last_year = today.year - 1
+    return date(last_year, 1, 1), date(last_year, 12, 31)
+
+
+def _to_report_out(report: DataReadinessReport) -> DataReadinessReportOut:
+    # Converts the full internal DataReadinessReport (which contains FinancialDataset
+    # and SourceLine.raw — both carrying numpy types) into the lean DataReadinessReportOut
+    # that pydantic-core can serialise to JSON without a TypeError.
+    # Only the fields the frontend actually needs are kept.
+    return DataReadinessReportOut(
+        overall_score=report.overall_score,
+        advice_ready=report.advice_ready,
+        ratios=report.ratios,
+        checks=[
+            {
+                "check_id": c.check_id,
+                "label": c.label,
+                "status": c.status,
+                "severity": c.severity,
+                "description": c.description,
+                "affected_amount": c.affected_amount,
+                "score_after_fix": c.score_after_fix,
+                # Build SourceLineOut explicitly to drop the `raw` field
+                "source_lines": [
+                    {
+                        "entity": s.entity,
+                        "record_id": str(s.record_id),
+                        "account_code": str(s.account_code),
+                        "amount": float(s.amount),
+                        "date": s.date,
+                        "description": str(s.description),
+                    }
+                    for s in c.source_lines
+                ],
+            }
+            for c in report.checks
+        ],
+    )
+
+
+@router.post("/readiness", response_model=AnalysisResult)
+async def run_readiness(
+    period_start: date | None = None,
+    period_end: date | None = None,
+):
+    global _last_report
+
+    # Defaults computed at request time, not at import time, so the system
+    # doesn't silently show stale years as more time passes.
+    default_start, default_end = _default_period()
+    if period_start is None:
+        period_start = default_start
+    if period_end is None:
+        period_end = default_end
+    if period_end < period_start:
+        raise HTTPException(
+            status_code=400,
+            detail="period_end must be on or after period_start.",
+        )
+
+    # Use live Exact Online data if OAuth token is present, otherwise fall back to
+    # local files — keeps demo working without credentials and enables live data
+    # once the user has completed the /auth/exact/redirect flow.
+    if is_authenticated():
+        tok = await get_access_token()
+        dataset = await load_all_from_exact(tok, get_division_id(), period_start, period_end)
+    else:
+        dataset = await load_all(
+            data_folder=DATA_FOLDER,
+            period_start=period_start,
+            period_end=period_end,
+        )
+    report = ReadinessEngine(dataset).run()
+    _last_report = report
+
+    if not report.advice_ready:
+        # Data has blockers/failures — call guided-diagnosis mode instead of advisory Claude.
+        # Returns structured fix instructions per failing check rather than a hard block.
+        blockers = [c for c in report.checks if c.status == "blocker"]
+        reason = f"{len(blockers)} blocker(s): " + ", ".join(c.label for c in blockers)
+        # Run the (sync) LLM call off the event loop so it doesn't block other requests.
+        guidance = await asyncio.to_thread(call_claude_guided, report)
+        return AnalysisResult(
+            readiness=_to_report_out(report),
+            advisory_outputs=[],
+            blocked_reason=reason,
+            guided_response=guidance,
+        )
+
+    advisory_outputs = await asyncio.to_thread(call_claude, report)
+    return AnalysisResult(
+        readiness=_to_report_out(report),
+        advisory_outputs=advisory_outputs,
+        blocked_reason=None,
+    )
+
+
+@router.get("/readiness/{check_id}/sources", response_model=list[SourceLineOut])
+def get_sources(check_id: str):
+    # Returns source lines for a specific check, using SourceLineOut to strip
+    # the `raw` dict field that contains unserializable numpy types.
+    if _last_report is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No readiness report available — run POST /api/v1/readiness first.",
+        )
+    for check in _last_report.checks:
+        if check.check_id == check_id:
+            return [
+                SourceLineOut(
+                    entity=s.entity,
+                    record_id=str(s.record_id),
+                    account_code=str(s.account_code),
+                    amount=float(s.amount),
+                    date=s.date,
+                    description=str(s.description),
+                )
+                for s in check.source_lines
+            ]
+    raise HTTPException(status_code=404, detail=f"check_id '{check_id}' not found.")

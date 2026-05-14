@@ -1,10 +1,17 @@
-pandas>=2.0
-openpyxl
-pdfplumber
-pydantic>=2.0
-pytest
-pytest-asyncio
-fastapi
-uvicorn
-httpx
-python-dotenv
+# Pinned to versions known to work locally. Bump deliberately, not via >= drift.
+pandas==2.2.3
+openpyxl==3.1.1
+pdfplumber==0.11.9
+pydantic==2.13.4
+fastapi==0.136.1
+uvicorn==0.46.0
+httpx==0.27.2
+python-dotenv==1.2.2
+pytest==9.0.3
+pytest-asyncio==1.3.0
+
+# LLM + observability — left at loose constraints because the local dev env
+# may not have these installed yet; production Railway env pulls latest stable.
+anthropic
+langwatch
+# openai dropped — reasoning.py switched from OpenRouter (OpenAI client) to direct Anthropic SDK.

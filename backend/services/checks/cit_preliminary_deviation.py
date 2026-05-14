@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -8,10 +9,15 @@ from backend.models import FinancialDataset, ReadinessCheck
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_TAX_DIR = _PROJECT_ROOT / "00 Dataroom hackathon" / "fietsatelier_morgenwind_tax_statements_filed"
-_CIT_PROV_PDF = _TAX_DIR / "CIT_provisional_statement_2024_filed.pdf"
-_CIT_FINAL_PDF = _TAX_DIR / "CIT_final_statement_2024_filed.pdf"
+# Resolved at call time so env-var overrides (Railway, tests) take effect.
+def _tax_dir() -> Path:
+    return Path(os.environ.get("TAX_PDF_DIR", "demo_seed/tax_pdfs"))
+
+def _cit_prov_pdf() -> Path:
+    return _tax_dir() / "CIT_provisional_statement_2024_filed.pdf"
+
+def _cit_final_pdf() -> Path:
+    return _tax_dir() / "CIT_final_statement_2024_filed.pdf"
 
 _CIT_REGEX = re.compile(r"CIT liability[^€]*€\s*([\d.]+,\d+)")
 
@@ -34,8 +40,8 @@ def _extract_cit(pdf_path: Path) -> float | None:
 
 
 def check(dataset: FinancialDataset) -> ReadinessCheck:
-    provisional = _extract_cit(_CIT_PROV_PDF)
-    final = _extract_cit(_CIT_FINAL_PDF)
+    provisional = _extract_cit(_cit_prov_pdf())
+    final = _extract_cit(_cit_final_pdf())
 
     if provisional is None or final is None:
         missing = "provisional" if provisional is None else "final"

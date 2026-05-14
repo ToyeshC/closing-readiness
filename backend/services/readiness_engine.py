@@ -1,3 +1,5 @@
+import logging
+
 from backend.models import DataReadinessReport, FinancialDataset, ReadinessCheck
 from backend.services.financial_ratios import compute_ratios
 from backend.services.checks import (
@@ -13,6 +15,19 @@ from backend.services.checks import (
     vat_reconciliation,
 )
 
+logger = logging.getLogger(__name__)
+
+# Optional LangWatch instrumentation. Tolerant of langwatch not being installed
+# or LANGWATCH_API_KEY being unset — the engine still runs without observability.
+try:
+    import langwatch as _langwatch
+    _trace = _langwatch.trace
+except Exception:
+    def _trace(*args, **kwargs):
+        def _decorator(fn):
+            return fn
+        return _decorator
+
 _PENALTIES = {"low": 0.03, "medium": 0.10, "high": 0.20}
 
 
@@ -20,6 +35,7 @@ class ReadinessEngine:
     def __init__(self, dataset: FinancialDataset) -> None:
         self.dataset = dataset
 
+    @_trace(name="readiness_engine")
     def run(self) -> DataReadinessReport:
         checks = [
             suspense.check(self.dataset),

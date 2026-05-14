@@ -32,13 +32,14 @@ def check(dataset: FinancialDataset) -> ReadinessCheck:
     overdue = []
     for r in dataset.purchase_entries:
         d = _to_date(r.get("boekdatum"))
-        amount = _to_float(r.get("bedrag"))
+        # Invoice `bedrag` is ex-VAT; bank payments are gross. Match on gross.
+        amount = _to_float(r.get("bedrag")) + _to_float(r.get("btw_bedrag"))
         if amount <= 0:
             continue
         if dataset.period_start <= d < cutoff and not _matched(amount):
             overdue.append(r)
 
-    total = sum(_to_float(r.get("bedrag")) for r in overdue)
+    total = sum(_to_float(r.get("bedrag")) + _to_float(r.get("btw_bedrag")) for r in overdue)
 
     if not overdue:
         return ReadinessCheck(

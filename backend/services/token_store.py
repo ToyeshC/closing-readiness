@@ -5,12 +5,18 @@ Single-row SQLite store — one authenticated company at a time (matches demo us
 All functions are module-level so Emma can import them directly.
 For production swap to PostgreSQL by replacing _get_conn() — the public API stays identical.
 """
+import asyncio
 import os
 import sqlite3
 import time
 from pathlib import Path
 
 import httpx
+
+# Serialize refresh requests so two concurrent callers don't both try to use
+# the same refresh token. Exact Online rotates refresh tokens on each use,
+# so the second caller would otherwise fail with an invalid_grant error.
+_refresh_lock = asyncio.Lock()
 
 EXACT_BASE = "https://start.exactonline.nl"
 EXACT_TOKEN_URL = f"{EXACT_BASE}/api/oauth2/token"
@@ -79,6 +85,10 @@ async def get_access_token() -> str:
     """
     Returns a valid access token, refreshing automatically if it expires within 60 seconds.
     Raises RuntimeError if not authenticated (call /auth/exact/redirect first).
+
+    Concurrent calls during the refresh window serialize through _refresh_lock —
+    only the first one performs the refresh, the rest pick up the freshly stored
+    token.
     """
     row = _read_row()
     if not row:
@@ -89,21 +99,27 @@ async def get_access_token() -> str:
     if row["expires_at"] - time.time() > 60:
         return row["access_token"]
 
-    # Token expired or about to — refresh it
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(EXACT_TOKEN_URL, data={
-            "grant_type": "refresh_token",
-            "refresh_token": row["refresh_token"],
-            "client_id": os.environ["EXACT_CLIENT_ID"],
-            "client_secret": os.environ["EXACT_CLIENT_SECRET"],
-        })
-        resp.raise_for_status()
-        data = resp.json()
+    async with _refresh_lock:
+        # Re-read inside the lock — the previous holder may have just refreshed.
+        row = _read_row()
+        if row and row["expires_at"] - time.time() > 60:
+            return row["access_token"]
 
-    store_tokens(
-        data["access_token"],
-        data["refresh_token"],
-        data["expires_in"],
-        int(row["division_id"]),
-    )
-    return data["access_token"]
+        # Token expired or about to — refresh it
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(EXACT_TOKEN_URL, data={
+                "grant_type": "refresh_token",
+                "refresh_token": row["refresh_token"],
+                "client_id": os.environ["EXACT_CLIENT_ID"],
+                "client_secret": os.environ["EXACT_CLIENT_SECRET"],
+            })
+            resp.raise_for_status()
+            data = resp.json()
+
+        store_tokens(
+            data["access_token"],
+            data["refresh_token"],
+            data["expires_in"],
+            int(row["division_id"]),
+        )
+        return data["access_token"]

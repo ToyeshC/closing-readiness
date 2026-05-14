@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 32" width="200" height="32" role="img" aria-label="Consult&amp;Co">
+  <text
+    x="0"
+    y="22"
+    font-family="Inter, system-ui, -apple-system, sans-serif"
+    font-weight="700"
+    font-size="22"
+    letter-spacing="-0.6"
+    fill="#FAF6EE"
+  >Consult<tspan fill="#E8A8AE">&amp;</tspan>Co</text>
+</svg>

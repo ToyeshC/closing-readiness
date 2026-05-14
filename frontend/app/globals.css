@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-navy:       #0E1A3A;
+  --color-brand-navy-soft:  #1A2A52;
+  --color-brand-cream:      #FAF6EE;
+  --color-brand-cream-deep: #F1EADC;
+  --color-brand-rose:       #E8A8AE;
+  --color-brand-rose-deep:  #C97F86;
+  --color-brand-ink:        #14181F;
+  --color-brand-muted:      #6B7280;
+  --color-brand-line:       #E5DFD2;
+
+  --color-status-blocker:   #C97F86;
+  --color-status-fail:      #B45309;
+  --color-status-warn:      #B45309;
+  --color-status-pass:      #0E1A3A;
+
+  --font-display: var(--font-inter);
+  --font-sans:    var(--font-inter);
+}
+
+:root {
+  --background: #FAF6EE;
+  --foreground: #14181F;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+/* ── Animations ─────────────────────────────────────────────────────────── */
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes gauge-fill {
+  from { stroke-dashoffset: var(--gauge-length, 360); }
+  to   { stroke-dashoffset: var(--gauge-target, 0); }
+}
+
+.animate-gauge-fill {
+  animation: gauge-fill 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up,
+  .animate-gauge-fill {
+    animation: none !important;
+  }
+}
