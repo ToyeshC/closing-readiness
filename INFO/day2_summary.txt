@@ -1,0 +1,126 @@
+DAY 2 SUMMARY — Toyesh
+12 May 2026
+
+════════════════════════
+WHAT WAS BUILT
+════════════════════════
+
+backend/services/normalizer.py
+  Three functions: gl_to_source_line(), invoice_to_source_line(), bank_to_source_line()
+  Converts raw pandas dicts → SourceLine Pydantic objects for the engine.
+  Also exports _to_date() and _to_float() used by all check modules.
+
+backend/services/readiness_engine.py
+  ReadinessEngine(dataset).run() → DataReadinessReport
+  Calls all 8 checks, scores the result, sets advice_ready.
+  Scoring: 1.0 minus penalties (high=0.20, medium=0.10, low=0.03).
+  Any blocker → advice_ready=False regardless of score.
+
+backend/services/checks/suspense.py          BLOCKER
+  Flags GL entries on account 1250 (Nog te duiden).
+
+backend/services/checks/todo_discrepancy.py  SEVERITY: high
+  Reports files in the "to do" import folder that haven't been imported.
+  Data comes from dataset.todo_discrepancies (populated by data_loader).
+
+backend/services/checks/revenue_reconciliation.py  SEVERITY: high
+  Compares GL 8xxx revenue vs sales entries total (period-filtered, abs values).
+
+backend/services/checks/capex_opex.py        SEVERITY: medium
+  Finds asset-keyword entries (machine, fiets, etc.) in 4xxx accounts above €1,000.
+
+backend/services/checks/bank_coverage.py     SEVERITY: medium
+  Checks what % of business days have a bank entry. <90% = warn, <80% = fail.
+
+backend/services/checks/ar_aging.py          SEVERITY: medium
+  Matches sales invoices to bank payments by amount. Unmatched invoices >90 days old = overdue AR.
+
+backend/services/checks/timing_differences.py  SEVERITY: medium
+  Compares GL "Periode" field (integer 1-12) vs boekdatum.month.
+  Mismatch = entry posted to wrong accounting period. (Better than boekdatum vs vervaldatum
+  which would flag every normal 30-day invoice as an error.)
+
+backend/services/checks/vat_reconciliation.py  SEVERITY: medium
+  Extracts VAT from PDF using re.findall (sums all 4 quarterly amounts).
+  Compares to GL btw_bedrag sum. Uses project-relative path to PDF.
+
+README.md
+  Project overview, architecture diagram, run instructions, team split.
+
+════════════════════════
+FILES MODIFIED
+════════════════════════
+
+.gitignore          Added **/.DS_Store
+CLAUDE.md           Replaced Day 2 task list with locked check_ids table
+                    Added note that draft_entries doesn't exist
+
+FILES DELETED
+
+emma_handoff.txt    Superseded by emma_session_handoff_2026-05-12.txt
+                    (and now toyesh_session_handoff_2026-05-12.txt for Emma)
+
+════════════════════════
+LIVE RESULTS (real data)
+════════════════════════
+
+Score: 40% | Advice ready: False
+
+[BLOCKER] Suspense account balance      €39,893.52  8 source lines
+[FAIL   ] Unimported file discrepancies            1,239 records pending
+[FAIL   ] Revenue reconciliation        €920,224.41 GL has no 2024 revenue entries yet
+[PASS   ] CapEx/OpEx misclassification
+[WARN   ] Bank statement coverage                  85% of business days covered
+[FAIL   ] Accounts receivable aging     €39,703.64  14 overdue invoices
+[PASS   ] Timing differences
+[PASS   ] VAT reconciliation                       ✓ quarterly PDF totals matched
+
+════════════════════════
+HOW TO VERIFY
+════════════════════════
+
+1. Tests (should be 10/10):
+   pytest tests/test_integration.py -v
+
+2. Engine smoke test:
+   python3 -c "
+   import asyncio
+   from pathlib import Path
+   from datetime import date
+   from backend.services.data_loader import load_all
+   from backend.services.readiness_engine import ReadinessEngine
+
+   async def main():
+       ds = await load_all(Path('00 Dataroom hackathon'), date(2024,1,1), date(2024,12,31))
+       r = ReadinessEngine(ds).run()
+       print(f'Score: {r.overall_score:.0%} | Advice ready: {r.advice_ready} | Checks: {len(r.checks)}')
+       for c in r.checks:
+           print(f'  [{c.status:7}] {c.label}')
+   asyncio.run(main())
+   "
+   Expected: 8 checks, score=40%, advice_ready=False
+
+3. Suspense source lines:
+   — Run smoke test above and check "lines=8" for suspense check
+   — These are what the judge clicks "Show source" to see
+
+4. After Emma pushes and API is running:
+   curl -X POST http://localhost:8000/api/v1/readiness
+   → should return JSON with overall_score=0.4, advice_ready=false, blocked_reason set
+
+════════════════════════
+WHAT TO PUSH TO MAIN
+════════════════════════
+
+git add backend/services/normalizer.py
+git add backend/services/readiness_engine.py
+git add backend/services/checks/
+git add README.md
+git add .gitignore
+git add CLAUDE.md
+git add toyesh_session_handoff_2026-05-12.txt
+git add day2_summary.txt
+git commit -m "day 2: harness engine + 8 readiness checks"
+git push origin toyesh
+# then merge toyesh → main (or open PR)
+# tell Emma to pull after the merge

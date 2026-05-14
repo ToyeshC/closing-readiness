@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest:*)",
+      "Bash(python:*)",
+      "Bash(git status)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git fetch*)",
+      "Bash(git merge*)",
+      "Bash(git checkout*)",
+      "Bash(pip install*)",
+      "Bash(find . *)",
+      "Bash(grep *)"
+    ]
+  }
+}

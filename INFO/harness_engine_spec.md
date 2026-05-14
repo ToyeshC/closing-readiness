@@ -1,3 +1,5 @@
+> **ARCHIVE — Day 1 specification. Superseded by CLAUDE.md and the live codebase. Do not use as reference.**
+
 # Harness Engine — Claude Code Specification
 > **Who this is for:** Claude Code, acting as my pair programmer  
 > **What I am building:** The data ingestion, normalization, and readiness assessment engine for a financial AI tool built for Consult&Co.'s hackathon (11–15 May 2026)  
@@ -89,11 +91,26 @@ class FinancialDataset(BaseModel):
     item_groups: list[dict]
     todo_discrepancies: list[dict]  # ADDED vs original spec — to do/ folder comparison results
 
+class RatioResult(BaseModel):
+    value: float | None
+    reliable: bool
+    note: str | None = None
+
+class FinancialRatios(BaseModel):
+    dso_days: RatioResult
+    dpo_days: RatioResult
+    working_capital: RatioResult
+    revenue_period: RatioResult
+    purchases_period: RatioResult
+    open_ar: RatioResult
+    open_ap: RatioResult
+
 class DataReadinessReport(BaseModel):
     dataset: FinancialDataset
     overall_score: float       # 0.0 to 1.0
     advice_ready: bool         # True only if zero blockers
     checks: list[ReadinessCheck]
+    ratios: FinancialRatios | None = None  # added Day 4
 ```
 
 ---
@@ -965,9 +982,13 @@ def test_clean_dataset_passes():
 
 During the Friday pitch, the sequence that wins is:
 
-1. Readiness report loads with 2–3 specific failing checks
-2. Advisor clicks "Show source" on the suspense account check → sees exact GL lines
-3. System shows blocked advisory screen with reason: *"€4,230 in unclassified suspense account entries. Revenue figures cannot be trusted until resolved."*
-4. That moment — the system refusing to hallucinate — is the responsible AI criterion
+1. Readiness report loads — score 30%, advice_ready=False
+2. Advisor clicks "Show source" on the suspense account check → sees exact GL lines (€39,893 across 8 entries)
+3. System calls Claude in guided-diagnosis mode → Claude explains what each issue means and how to fix it
+4. That moment — the system explaining *what to fix* rather than silently refusing — is the responsible AI criterion
+5. (If time allows) Advisor resolves the suspense entries → score rises → Claude advisory unlocks
+
+**Note:** advice_ready=False no longer means hard block. Claude is called with a guidance-mode prompt.
+The gate holds: Claude never produces a *closing advisory* on dirty data — only fix guidance.
 
 Everything I build leads to that moment.

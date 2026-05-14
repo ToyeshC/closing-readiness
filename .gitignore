@@ -4,3 +4,7 @@ __pycache__/
 *.pyo
 .pytest_cache/
 .env
+oauth_tokens.db
+.claude/settings.local.json
+.claude/worktrees/
+**/.DS_Store

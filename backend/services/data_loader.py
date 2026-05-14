@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 from datetime import date
 
+import httpx
 import pandas as pd
 
 from backend.models import FinancialDataset
@@ -76,29 +77,6 @@ def _load_csv(path: Path, sep: str = ";") -> list[dict]:
         return []
 
 
-def _discrepancy(label: str, main_rows: list[dict], todo_rows: list[dict], amount_field: str | None = None, note: str | None = None) -> dict | None:
-    """Return a discrepancy record if counts or amounts differ between main and to-do versions."""
-    count_diff = abs(len(main_rows) - len(todo_rows))
-    amount_diff = None
-    if amount_field:
-        main_total = sum(float(r.get(amount_field) or 0) for r in main_rows if r.get(amount_field) is not None)
-        todo_total = sum(float(r.get(amount_field) or 0) for r in todo_rows if r.get(amount_field) is not None)
-        amount_diff = abs(main_total - todo_total)
-
-    if count_diff == 0 and (amount_diff is None or amount_diff < 0.01):
-        return None
-
-    result = {
-        "file": label,
-        "main_count": len(main_rows),
-        "todo_count": len(todo_rows),
-        "count_diff": count_diff,
-        "amount_diff": amount_diff,
-    }
-    if note:
-        result["note"] = note
-    return result
-
 
 async def load_all(data_folder: Path, period_start: date, period_end: date) -> FinancialDataset:
     root = data_folder
@@ -125,17 +103,9 @@ async def load_all(data_folder: Path, period_start: date, period_end: date) -> F
     bank_2025 = _load_excel(main_folder / "05_bank_cash_entries_2025_import.xlsx")
     bank_entries = bank_2024 + bank_2025
 
-    # Bank to-do copy — combined 2024+2025, used for discrepancy check only
-    bank_todo = _load_excel(todo_folder / "06_bank_cash_entries_2024en2025_import - kopie.xlsx")
-
     # Relations — row 0 is section labels, row 1 is the real header
     relations = _load_excel(
         main_folder / "01_relations_debtors_creditors_import.xlsx",
-        sheet_name="Invoerblad relaties",
-        header=1,
-    )
-    relations_daughter = _load_excel(
-        todo_folder / "01_relations_debtors_creditors_import_daughter.xlsx",
         sheet_name="Invoerblad relaties",
         header=1,
     )
@@ -158,35 +128,6 @@ async def load_all(data_folder: Path, period_start: date, period_end: date) -> F
     item_groups = _load_excel(main_folder / "07_item_groups_optional_import.xlsx")
     items = _load_excel(main_folder / "08_items_optional_import.xlsx")
 
-    # Build discrepancy list for the to-do check
-    discrepancies: list[dict] = []
-
-    # GL / sales / purchase only exist in to do/ — no main counterpart
-    for label, rows in [
-        ("gl_entries_pending_import", gl_entries),
-        ("sales_entries_pending_import", sales_entries),
-        ("purchase_entries_pending_import", purchase_entries),
-    ]:
-        if rows:
-            discrepancies.append({
-                "file": label,
-                "main_count": 0,
-                "todo_count": len(rows),
-                "count_diff": len(rows),
-                "amount_diff": None,
-                "note": "Only exists in to do/ — not yet imported into main administration",
-            })
-
-    # Bank entries: main (2024+2025) vs to-do combined copy
-    d = _discrepancy("bank_entries", bank_entries, bank_todo, amount_field="bedrag")
-    if d:
-        discrepancies.append(d)
-
-    # Relations: main vs daughter
-    d = _discrepancy("relations_daughter", relations, relations_daughter)
-    if d:
-        discrepancies.append(d)
-
     return FinancialDataset(
         period_start=period_start,
         period_end=period_end,
@@ -201,5 +142,224 @@ async def load_all(data_folder: Path, period_start: date, period_end: date) -> F
         tax_schedule=tax_schedule,
         items=items,
         item_groups=item_groups,
-        todo_discrepancies=discrepancies,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Exact Online API loader
+# ---------------------------------------------------------------------------
+
+_EXACT_BASE = "https://start.exactonline.nl/api/v1"
+
+
+def _exact_headers(access_token: str) -> dict:
+    return {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+
+
+async def _exact_get_all(client: httpx.AsyncClient, url: str, headers: dict) -> list[dict]:
+    """Fetch all pages from an Exact Online OData endpoint (follows @odata.nextLink)."""
+    results: list[dict] = []
+    next_url: str | None = url
+    while next_url:
+        resp = await client.get(next_url, headers=headers, timeout=30.0)
+        resp.raise_for_status()
+        body = resp.json()
+        results.extend(body.get("d", {}).get("results", []))
+        next_url = body.get("d", {}).get("__next")
+    return results
+
+
+async def _exact_get_safe(
+    client: httpx.AsyncClient, url: str, headers: dict, name: str = ""
+) -> list[dict]:
+    """Like _exact_get_all but returns [] on HTTP errors instead of raising."""
+    try:
+        return await _exact_get_all(client, url, headers)
+    except Exception as e:
+        logger.warning("Exact Online %s skipped: %s", name or url.split("?")[0].split("/")[-1], e)
+        return []
+
+
+async def load_all_from_exact(
+    access_token: str,
+    division_id: int,
+    period_start: date,
+    period_end: date,
+) -> FinancialDataset:
+    """
+    Load FinancialDataset from Exact Online REST API.
+
+    Field mapping (Exact Online JSON → Dutch column names all checks expect):
+      TransactionLines.Date            → boekdatum
+      TransactionLines.AmountDC        → bedrag
+      TransactionLines.GLAccountCode   → grootboekrekening
+      TransactionLines.Description     → omschrijving
+      TransactionLines.EntryNumber     → boekstuknummer
+      TransactionLines.FinancialPeriod → periode
+      PurchaseEntries.EntryDate        → boekdatum
+      PurchaseEntries.AmountDC         → bedrag
+      PurchaseEntries.SupplierName     → naam  (no SupplierCode in API)
+      BankEntryLines.Date              → datum
+      BankEntryLines.AmountDC          → bedrag
+      OpeningBalance.Amount+BalanceSide → bedrag (debit positive, credit negative)
+    """
+    base = f"{_EXACT_BASE}/{division_id}"
+    hdrs = _exact_headers(access_token)
+    d_filter = (
+        f"Date ge datetime'{period_start.isoformat()}T00:00:00'"
+        f" and Date le datetime'{period_end.isoformat()}T23:59:59'"
+    )
+
+    async with httpx.AsyncClient() as client:
+        # GL entries — all transaction lines in period
+        gl_raw = await _exact_get_all(
+            client,
+            f"{base}/financialtransaction/TransactionLines"
+            f"?$filter={d_filter}"
+            "&$select=EntryNumber,Date,AmountDC,GLAccountCode,Description,FinancialPeriod",
+            hdrs,
+        )
+        gl_entries = [
+            {
+                "boekstuknummer": r.get("EntryNumber"),
+                "boekdatum": r.get("Date"),
+                "bedrag": r.get("AmountDC"),
+                "grootboekrekening": r.get("GLAccountCode"),
+                "omschrijving": r.get("Description"),
+                "periode": r.get("FinancialPeriod"),
+            }
+            for r in gl_raw
+        ]
+
+        # Sales entries — SalesInvoices is empty when data is imported as GL entries.
+        # Fall back to TransactionLines on account 1300 (AR/debtors) as sales proxy.
+        sales_raw = await _exact_get_safe(
+            client,
+            f"{base}/salesinvoice/SalesInvoices"
+            f"?$filter=InvoiceDate ge datetime'{period_start.isoformat()}T00:00:00'"
+            f" and InvoiceDate le datetime'{period_end.isoformat()}T23:59:59'"
+            "&$select=EntryNumber,InvoiceDate,AmountDC,DebtorCode,DebtorName,Description,DueDate,YourRef",
+            hdrs, "SalesInvoices",
+        )
+        if sales_raw:
+            sales_entries = [
+                {
+                    "boekstuknummer": r.get("EntryNumber"),
+                    "boekdatum": r.get("InvoiceDate"),
+                    "bedrag": r.get("AmountDC"),
+                    "code": r.get("DebtorCode"),
+                    "naam": r.get("DebtorName"),
+                    "omschrijving": r.get("Description"),
+                    "vervaldatum": r.get("DueDate"),
+                    "uw_ref": r.get("YourRef"),
+                    "grootboekrekening": "1300",
+                }
+                for r in sales_raw
+            ]
+        else:
+            # Fallback: AR lines from GL — no due date available
+            ar_lines = [e for e in gl_entries if str(e.get("grootboekrekening", "")).startswith("13")]
+            sales_entries = [
+                {**e, "vervaldatum": None, "code": None, "naam": None, "uw_ref": None}
+                for e in ar_lines
+            ]
+
+        # Purchase entries — SupplierCode field does not exist in API; use SupplierName only
+        purch_raw = await _exact_get_safe(
+            client,
+            f"{base}/purchaseentry/PurchaseEntries"
+            f"?$filter=EntryDate ge datetime'{period_start.isoformat()}T00:00:00'"
+            f" and EntryDate le datetime'{period_end.isoformat()}T23:59:59'"
+            "&$select=EntryNumber,EntryDate,AmountDC,SupplierName,Description,DueDate,YourRef",
+            hdrs, "PurchaseEntries",
+        )
+        purchase_entries = [
+            {
+                "boekstuknummer": r.get("EntryNumber"),
+                "boekdatum": r.get("EntryDate"),
+                "bedrag": r.get("AmountDC"),
+                "code": None,
+                "naam": r.get("SupplierName"),
+                "omschrijving": r.get("Description"),
+                "vervaldatum": r.get("DueDate"),
+                "uw_ref": r.get("YourRef"),
+                "grootboekrekening": "1700",
+            }
+            for r in purch_raw
+        ]
+
+        # Bank entries — BankEntryLines has Date+AmountDC; BankEntries header does not
+        bank_lines_raw = await _exact_get_safe(
+            client,
+            f"{base}/financialtransaction/BankEntryLines"
+            f"?$filter={d_filter}"
+            "&$select=EntryNumber,Date,AmountDC,AccountName,Description",
+            hdrs, "BankEntryLines",
+        )
+        cash_lines_raw = await _exact_get_safe(
+            client,
+            f"{base}/financialtransaction/CashEntryLines"
+            f"?$filter={d_filter}"
+            "&$select=EntryNumber,Date,AmountDC,AccountName,Description",
+            hdrs, "CashEntryLines",
+        )
+        bank_entries = [
+            {
+                "datum": r.get("Date"),
+                "bedrag": r.get("AmountDC"),
+                "naam": r.get("AccountName"),
+                "omschrijving": r.get("Description"),
+                "boekstuknummer": r.get("EntryNumber"),
+            }
+            for r in bank_lines_raw + cash_lines_raw
+        ]
+
+        # Opening balances — Amount is signed per BalanceSide (D=debit positive, C=credit negative)
+        opening_raw = await _exact_get_safe(
+            client,
+            f"{base}/openingbalance/CurrentYear/AfterEntry"
+            "?$select=GLAccountCode,GLAccountDescription,Amount,BalanceSide",
+            hdrs, "OpeningBalance",
+        )
+        opening_balances = [
+            {
+                "grootboekrekening": r.get("GLAccountCode"),
+                "bedrag": (r.get("Amount") or 0) * (1 if r.get("BalanceSide") == "D" else -1),
+                "omschrijving": r.get("GLAccountDescription"),
+            }
+            for r in opening_raw
+        ]
+
+        # Relations
+        relations_raw = await _exact_get_safe(
+            client,
+            f"{base}/crm/Accounts"
+            "?$select=Code,Name,AccountManagerFullName,Email",
+            hdrs, "Accounts",
+        )
+        relations = [
+            {
+                "code": r.get("Code"),
+                "naam": r.get("Name"),
+                "account_manager": r.get("AccountManagerFullName"),
+                "email": r.get("Email"),
+            }
+            for r in relations_raw
+        ]
+
+    # asset_register, intercompany, tax_schedule have no Exact Online equivalent.
+    return FinancialDataset(
+        period_start=period_start,
+        period_end=period_end,
+        gl_entries=gl_entries,
+        opening_balances=opening_balances,
+        sales_entries=sales_entries,
+        purchase_entries=purchase_entries,
+        bank_entries=bank_entries,
+        relations=relations,
+        asset_register=[],
+        intercompany=[],
+        tax_schedule=[],
+        items=[],
+        item_groups=[],
     )
