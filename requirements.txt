@@ -8,4 +8,5 @@ fastapi
 uvicorn
 httpx
 anthropic
+openai
 python-dotenv
