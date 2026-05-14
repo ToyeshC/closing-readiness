@@ -220,6 +220,7 @@ function PreRun({
 interface ExecSummaryProps {
   result: AnalysisResult;
   onRerun: () => void;
+  onStartOver: () => void;
   showRerun: boolean;
   // Re-run drawer needs the same period+run controls as PreRun
   periodStart: string;

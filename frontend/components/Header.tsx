@@ -5,15 +5,16 @@
 import Link from "next/link";
 
 interface HeaderProps {
-  current: "home" | "report" | "advisory";
+  current: "home" | "report" | "advisory" | "fix-plan";
   authenticated?: boolean;
   divisionId?: number | null;
 }
 
 const CRUMBS = [
-  { key: "home" as const,     label: "Overview",   href: "/" },
-  { key: "report" as const,   label: "Report",     href: "/report" },
-  { key: "advisory" as const, label: "Advisory",   href: "/advisory" },
+  { key: "home" as const,       label: "Overview",  href: "/" },
+  { key: "report" as const,     label: "Report",    href: "/report" },
+  { key: "advisory" as const,   label: "Advisory",  href: "/advisory" },
+  { key: "fix-plan" as const,   label: "Fix Plan",  href: "/fix-plan" },
 ];
 
 export function Header({ current, authenticated, divisionId }: HeaderProps) {
