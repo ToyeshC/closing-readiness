@@ -68,6 +68,11 @@ export default function Home() {
       localStorage.setItem("analysis_result", JSON.stringify(r));
       setResult(r);
       setShowRerun(false);
+      // Re-probe auth status — the initial mount check can fail if the backend
+      // isn't ready yet, leaving the badge stale even when runs succeed.
+      fetchAuthStatus()
+        .then((d) => { setAuthenticated(d.authenticated); setDivisionId(d.division_id); })
+        .catch(() => {});
       // If first run, navigate to /report so the user sees the full detail.
       // On subsequent re-runs from the exec summary, stay on Home.
       if (!result) router.push("/report");
@@ -220,6 +225,7 @@ function PreRun({
 interface ExecSummaryProps {
   result: AnalysisResult;
   onRerun: () => void;
+  onStartOver: () => void;
   showRerun: boolean;
   // Re-run drawer needs the same period+run controls as PreRun
   periodStart: string;
