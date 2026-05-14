@@ -2,6 +2,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend_FastAPI_emma.routers import analyze
+from backend.routers.auth_exact import router as auth_router
 
 app = FastAPI(title="Fietsatelier Morgenwind — Closing Readiness API")
 
@@ -15,6 +16,7 @@ app.add_middleware(
 )
 
 app.include_router(analyze.router, prefix="/api/v1")
+app.include_router(auth_router)
 
 
 @app.get("/health")
