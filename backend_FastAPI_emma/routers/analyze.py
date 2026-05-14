@@ -1,9 +1,12 @@
 import asyncio
+import logging
 import os
 from datetime import date
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+
+log = logging.getLogger(__name__)
 
 from backend.models import DataReadinessReport, SourceLine
 from backend.services.data_loader import load_all, load_all_from_exact
@@ -91,19 +94,30 @@ async def run_readiness(
             detail="period_end must be on or after period_start.",
         )
 
-    # Use live Exact Online data if OAuth token is present, otherwise fall back to
-    # local files — keeps demo working without credentials and enables live data
-    # once the user has completed the /auth/exact/redirect flow.
-    if is_authenticated():
-        tok = await get_access_token()
-        dataset = await load_all_from_exact(tok, get_division_id(), period_start, period_end)
-    else:
-        dataset = await load_all(
-            data_folder=DATA_FOLDER,
-            period_start=period_start,
-            period_end=period_end,
-        )
-    report = ReadinessEngine(dataset).run()
+    try:
+        # Use live Exact Online data if OAuth token is present, otherwise fall back to
+        # local files — keeps demo working without credentials and enables live data
+        # once the user has completed the /auth/exact/redirect flow.
+        if is_authenticated():
+            tok = await get_access_token()
+            dataset = await load_all_from_exact(tok, get_division_id(), period_start, period_end)
+        else:
+            dataset = await load_all(
+                data_folder=DATA_FOLDER,
+                period_start=period_start,
+                period_end=period_end,
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("Data loading failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Data loading failed: {exc}") from exc
+
+    try:
+        report = ReadinessEngine(dataset).run()
+    except Exception as exc:
+        log.exception("Readiness engine failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Readiness engine error: {exc}") from exc
     _last_report = report
 
     if not report.advice_ready:
@@ -112,7 +126,11 @@ async def run_readiness(
         blockers = [c for c in report.checks if c.status == "blocker"]
         reason = f"{len(blockers)} blocker(s): " + ", ".join(c.label for c in blockers)
         # Run the (sync) LLM call off the event loop so it doesn't block other requests.
-        guidance = await asyncio.to_thread(call_claude_guided, report)
+        try:
+            guidance = await asyncio.to_thread(call_claude_guided, report)
+        except Exception as exc:
+            log.exception("Guided-diagnosis LLM call failed: %s", exc)
+            raise HTTPException(status_code=502, detail=f"LLM call failed: {exc}") from exc
         return AnalysisResult(
             readiness=_to_report_out(report),
             advisory_outputs=[],
@@ -120,7 +138,11 @@ async def run_readiness(
             guided_response=guidance,
         )
 
-    advisory_outputs = await asyncio.to_thread(call_claude, report)
+    try:
+        advisory_outputs = await asyncio.to_thread(call_claude, report)
+    except Exception as exc:
+        log.exception("Advisory LLM call failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"LLM call failed: {exc}") from exc
     return AnalysisResult(
         readiness=_to_report_out(report),
         advisory_outputs=advisory_outputs,
