@@ -4,11 +4,13 @@ import os
 from datetime import date
 from pathlib import Path
 
+import langwatch
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
 
-from backend.models import DataReadinessReport, SourceLine
+from backend.models import DataReadinessReport, FixPlan, SourceLine
 from backend.services.data_loader import load_all, load_all_from_exact
 from backend.services.readiness_engine import ReadinessEngine
 from backend.services.token_store import get_access_token, get_division_id, is_authenticated
@@ -17,7 +19,14 @@ from backend_FastAPI_emma.schemas import (
     DataReadinessReportOut,
     SourceLineOut,
 )
+from backend.services.benchmarks import fetch_sector_benchmarks
+from backend_FastAPI_emma.services.fix_planner import generate_fix_plan
 from backend_FastAPI_emma.services.reasoning import call_claude, call_claude_guided
+
+
+class FixPlanApproval(BaseModel):
+    approved_items: list[str] = []   # list of check_ids the advisor approved
+    notes: str = ""
 
 router = APIRouter()
 
@@ -120,6 +129,13 @@ async def run_readiness(
         raise HTTPException(status_code=500, detail=f"Readiness engine error: {exc}") from exc
     _last_report = report
 
+    # Fetch CBS sector benchmarks in parallel with the LLM call (10s timeout, non-fatal).
+    try:
+        benchmarks = await asyncio.wait_for(fetch_sector_benchmarks(), timeout=10.0)
+    except Exception as exc:
+        log.warning("Sector benchmarks fetch failed (non-fatal): %s", exc)
+        benchmarks = None
+
     if not report.advice_ready:
         # Data has blockers/failures — call guided-diagnosis mode instead of advisory Claude.
         # Returns structured fix instructions per failing check rather than a hard block.
@@ -136,6 +152,7 @@ async def run_readiness(
             advisory_outputs=[],
             blocked_reason=reason,
             guided_response=guidance,
+            sector_benchmarks=benchmarks,
         )
 
     try:
@@ -147,7 +164,71 @@ async def run_readiness(
         readiness=_to_report_out(report),
         advisory_outputs=advisory_outputs,
         blocked_reason=None,
+        sector_benchmarks=benchmarks,
     )
+
+
+@router.post("/fix-plan", response_model=FixPlan)
+async def create_fix_plan(
+    period_start: date | None = None,
+    period_end: date | None = None,
+):
+    """Generate an AI fix plan for all failing checks in the given period."""
+    default_start, default_end = _default_period()
+    if period_start is None:
+        period_start = default_start
+    if period_end is None:
+        period_end = default_end
+
+    # Use cached report if available and period matches; otherwise re-run the engine.
+    global _last_report
+    if (
+        _last_report is not None
+        and _last_report.dataset.period_start == period_start
+        and _last_report.dataset.period_end == period_end
+    ):
+        report = _last_report
+    else:
+        try:
+            if is_authenticated():
+                tok = await get_access_token()
+                dataset = await load_all_from_exact(tok, get_division_id(), period_start, period_end)
+            else:
+                dataset = await load_all(
+                    data_folder=DATA_FOLDER,
+                    period_start=period_start,
+                    period_end=period_end,
+                )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            log.exception("Data loading failed: %s", exc)
+            raise HTTPException(status_code=502, detail=f"Data loading failed: {exc}") from exc
+        try:
+            report = ReadinessEngine(dataset).run()
+        except Exception as exc:
+            log.exception("Readiness engine failed: %s", exc)
+            raise HTTPException(status_code=500, detail=f"Readiness engine error: {exc}") from exc
+        _last_report = report
+
+    try:
+        plan = await asyncio.to_thread(generate_fix_plan, report)
+    except Exception as exc:
+        log.exception("Fix plan generation failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Fix plan LLM call failed: {exc}") from exc
+
+    return plan
+
+
+@router.put("/fix-plan/{plan_id}/approve")
+@langwatch.trace(name="fix_plan_approval")
+async def approve_fix_plan(plan_id: str, body: FixPlanApproval):
+    """Record the advisor's approval decision — logged to LangWatch for EU AI Act Article 14 audit trail."""
+    log.info(
+        "Fix plan approved: plan_id=%s approved_items=%s notes=%r",
+        plan_id, body.approved_items, body.notes,
+    )
+    return {"logged": True, "plan_id": plan_id, "approved_items": body.approved_items}
 
 
 @router.get("/readiness/{check_id}/sources", response_model=list[SourceLineOut])

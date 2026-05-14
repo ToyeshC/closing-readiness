@@ -1,4 +1,4 @@
-from backend.models import FinancialDataset, FinancialRatios, RatioResult
+from backend.models import AgingEntry, FinancialDataset, FinancialRatios, RatioResult
 from backend.services.normalizer import _to_date, _to_float
 
 _MATCH_TOLERANCE = 0.01  # same as ar/ap aging checks
@@ -50,6 +50,97 @@ def _open_invoices(
     return total
 
 
+def _unmatched_invoice_records(
+    invoices: list[dict],
+    bank_entries: list[dict],
+    positive_flow: bool,
+    period_start,
+    period_end,
+) -> list[dict]:
+    """Same matching logic as _open_invoices but returns individual unmatched records."""
+    bank_pool: dict[int, list] = {}
+    for r in bank_entries:
+        amt = _to_float(r.get("bedrag"))
+        if positive_flow and amt > 0:
+            key = round(amt * 100)
+            bank_pool.setdefault(key, []).append(r)
+        elif not positive_flow and amt < 0:
+            key = round(abs(amt) * 100)
+            bank_pool.setdefault(key, []).append(r)
+
+    def _matched(amount: float) -> bool:
+        key = round(amount * 100)
+        if bank_pool.get(key):
+            bank_pool[key].pop(0)
+            return True
+        for bkey in list(bank_pool.keys()):
+            if bank_pool[bkey] and abs(bkey - key) / max(key, 1) <= _MATCH_TOLERANCE:
+                bank_pool[bkey].pop(0)
+                return True
+        return False
+
+    unmatched = []
+    for r in invoices:
+        d = _to_date(r.get("boekdatum"))
+        amount = _to_float(r.get("bedrag")) + _to_float(r.get("btw_bedrag"))
+        if amount <= 0:
+            continue
+        if not (period_start <= d <= period_end):
+            continue
+        if not _matched(amount):
+            unmatched.append({**r, "_gross_amount": amount, "_invoice_date": d})
+    return unmatched
+
+
+def _aging_detail(unmatched: list[dict], period_end, top_n: int = 10) -> list[AgingEntry]:
+    """Group unmatched invoices by counterparty, bucket by age, return top_n + Other."""
+    def _bucket(days: int) -> str:
+        if days <= 30:
+            return "0-30"
+        elif days <= 60:
+            return "31-60"
+        elif days <= 90:
+            return "61-90"
+        return "90+"
+
+    by_name: dict[str, list] = {}
+    for r in unmatched:
+        name = str(r.get("naam") or r.get("omschrijving") or "Unknown")[:60].strip() or "Unknown"
+        by_name.setdefault(name, []).append(r)
+
+    sorted_names = sorted(by_name.items(), key=lambda kv: sum(r["_gross_amount"] for r in kv[1]), reverse=True)
+
+    result: list[AgingEntry] = []
+    other_amount = 0.0
+    other_count = 0
+
+    for i, (name, records) in enumerate(sorted_names):
+        total = sum(r["_gross_amount"] for r in records)
+        if i < top_n:
+            oldest = min(r["_invoice_date"] for r in records)
+            days_old = (period_end - oldest).days
+            ref = str(records[0].get("boekstuknummer", "") or "")
+            result.append(AgingEntry(
+                counterparty=name,
+                amount=round(total, 2),
+                aging_bucket=_bucket(days_old),
+                invoice_ref=ref or None,
+            ))
+        else:
+            other_amount += total
+            other_count += 1
+
+    if other_count > 0:
+        result.append(AgingEntry(
+            counterparty=f"Other ({other_count} entries)",
+            amount=round(other_amount, 2),
+            aging_bucket="—",
+            invoice_ref=None,
+        ))
+
+    return result
+
+
 def compute_ratios(dataset: FinancialDataset) -> FinancialRatios:
     period_days = max((dataset.period_end - dataset.period_start).days, 1)
 
@@ -80,6 +171,18 @@ def compute_ratios(dataset: FinancialDataset) -> FinancialRatios:
         dataset.purchase_entries, dataset.bank_entries,
         positive_flow=False, period_start=dataset.period_start, period_end=dataset.period_end,
     )
+
+    # Per-counterparty aging breakdown (re-runs matching; top 10 each)
+    ar_unmatched = _unmatched_invoice_records(
+        dataset.sales_entries, dataset.bank_entries,
+        positive_flow=True, period_start=dataset.period_start, period_end=dataset.period_end,
+    )
+    ap_unmatched = _unmatched_invoice_records(
+        dataset.purchase_entries, dataset.bank_entries,
+        positive_flow=False, period_start=dataset.period_start, period_end=dataset.period_end,
+    )
+    ar_aging = _aging_detail(ar_unmatched, dataset.period_end)
+    ap_aging = _aging_detail(ap_unmatched, dataset.period_end)
 
     # DSO = (open AR / revenue) * period_days
     if revenue > 0 and open_ar > 0:
@@ -164,4 +267,6 @@ def compute_ratios(dataset: FinancialDataset) -> FinancialRatios:
             note=None,
         ),
         gross_profit_margin=gp_margin,
+        ar_aging_detail=ar_aging,
+        ap_aging_detail=ap_aging,
     )
