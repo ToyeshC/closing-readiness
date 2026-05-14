@@ -89,8 +89,11 @@ asyncio.run(main())
 # Run tests
 pytest tests/test_integration.py -v
 
-# Start FastAPI server
-uvicorn backend_FastAPI_emma.main:app --reload
+# Start FastAPI server (but this may fail on Python <3.10 (Anaconda default))
+# uvicorn backend_FastAPI_emma.main:app --reload
+
+# Start FastAPI server (Python 3.11 required — Pydantic v2 uses float|None syntax)
+/Library/Frameworks/Python.framework/Versions/3.11/bin/uvicorn backend_FastAPI_emma.main:app --reload
 ```
 
 ## Data
@@ -104,6 +107,40 @@ Exact Online API: OAuth credentials in `.env` (gitignored). Division ID: 4453885
 - **Toyesh** — data engine (`backend/services/`)
 - **Emma** — FastAPI routes + Next.js frontend (`backend_FastAPI_emma/`)
 - **Shared contract** — `backend/models.py` (coordinate before changing)
+
+## Deploy
+
+### Backend → Railway
+
+```bash
+railway login
+railway up
+```
+
+Set these env vars in the Railway dashboard (Settings → Variables):
+
+| Variable | Value |
+|---|---|
+| `OPENROUTER_API_KEY` | your OpenRouter key |
+| `OPENROUTER_MODEL` | `openai/gpt-oss-120b:free` |
+| `LANGWATCH_API_KEY` | your LangWatch key |
+| `EXACT_CLIENT_ID` | from Exact Online developer portal |
+| `EXACT_CLIENT_SECRET` | from Exact Online developer portal |
+| `EXACT_REDIRECT_URI` | `https://<railway-domain>/auth/exact/callback` |
+| `FRONTEND_URL` | your Vercel deployment URL |
+| `TOKEN_DB_PATH` | `/data/oauth_tokens.db` (add persistent volume at `/data`) |
+
+> `ANTHROPIC_API_KEY` is not needed — LLM calls go through OpenRouter. Keep it commented in `.env.example` for future reference.
+
+### Frontend → Vercel
+
+```bash
+cd frontend && vercel --prod
+```
+
+Set `NEXT_PUBLIC_API_URL` to the Railway backend URL.
+
+---
 
 ## Known Issues / Deferred
 
