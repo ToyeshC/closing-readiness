@@ -5,6 +5,7 @@ from typing import Literal
 # FinancialRatios is imported directly from Toyesh's models — we reuse it
 # unchanged as the ratios field type in DataReadinessReportOut below.
 from backend.models import FinancialRatios
+from backend.services.benchmarks import SectorBenchmarks
 
 
 class AdvisoryOutput(BaseModel):
@@ -80,3 +81,4 @@ class AnalysisResult(BaseModel):
     advisory_outputs: list[AdvisoryOutput] | None  # None when not advice_ready
     blocked_reason: str | None
     guided_response: str | None = None             # populated when advice_ready=False
+    sector_benchmarks: SectorBenchmarks | None = None  # CBS StatLine sector context
