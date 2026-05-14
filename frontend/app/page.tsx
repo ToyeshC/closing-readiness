@@ -1,11 +1,5 @@
 "use client";
 
-// Home — two-mode page:
-//   1. Pre-run (no result in localStorage): connect + date pickers + Run button.
-//   2. Post-run (result present): executive summary — score gauge, KPI tiles,
-//      top 3 issues, CTAs to report/advisory. A collapsible re-run drawer at
-//      the bottom lets the demo re-run live without leaving the page.
-
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -20,38 +14,28 @@ import { formatEur, formatCompactEur, formatDays, formatPct } from "../lib/forma
 export default function Home() {
   const router = useRouter();
 
-  // ── Auth state ───────────────────────────────────────────────────────────
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [divisionId, setDivisionId] = useState<number | null>(null);
 
-  // ── Period controls (default to last complete calendar year) ─────────────
   const _lastYear = new Date().getFullYear() - 1;
   const [periodStart, setPeriodStart] = useState(`${_lastYear}-01-01`);
   const [periodEnd, setPeriodEnd] = useState(`${_lastYear}-12-31`);
 
-  // ── Result + UI state ────────────────────────────────────────────────────
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRerun, setShowRerun] = useState(false);
 
-  // Load existing result from localStorage so we land on exec summary on revisit.
   useEffect(() => {
     try {
       const raw = localStorage.getItem("analysis_result");
       if (raw) setResult(JSON.parse(raw));
-    } catch {
-      // Stale/corrupt result — ignore, show pre-run mode.
-    }
+    } catch { /* ignore */ }
   }, []);
 
-  // Probe auth status on mount.
   useEffect(() => {
     fetchAuthStatus()
-      .then((d) => {
-        setAuthenticated(d.authenticated);
-        setDivisionId(d.division_id);
-      })
+      .then((d) => { setAuthenticated(d.authenticated); setDivisionId(d.division_id); })
       .catch(() => setAuthenticated(false));
   }, []);
 
@@ -68,8 +52,6 @@ export default function Home() {
       localStorage.setItem("analysis_result", JSON.stringify(r));
       setResult(r);
       setShowRerun(false);
-      // If first run, navigate to /report so the user sees the full detail.
-      // On subsequent re-runs from the exec summary, stay on Home.
       if (!result) router.push("/report");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
@@ -82,14 +64,13 @@ export default function Home() {
     <main className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col">
       <Header current="home" authenticated={!!authenticated} divisionId={divisionId} />
 
-      <div className="max-w-5xl mx-auto w-full px-6 sm:px-8 py-10 flex-1">
-        {result ? (
+      {result ? (
+        <div className="max-w-5xl mx-auto w-full px-6 sm:px-8 py-10 flex-1">
           <ExecutiveSummary
             result={result}
             onRerun={() => setShowRerun(!showRerun)}
             onStartOver={handleStartOver}
             showRerun={showRerun}
-            // Pre-run controls re-rendered inside the drawer
             periodStart={periodStart}
             periodEnd={periodEnd}
             setPeriodStart={setPeriodStart}
@@ -98,7 +79,9 @@ export default function Home() {
             error={error}
             runCheck={runCheck}
           />
-        ) : (
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center py-16 px-6">
           <PreRun
             authenticated={authenticated}
             divisionId={divisionId}
@@ -110,13 +93,13 @@ export default function Home() {
             error={error}
             runCheck={runCheck}
           />
-        )}
-      </div>
+        </div>
+      )}
     </main>
   );
 }
 
-// ── Sub-component: pre-run controls ──────────────────────────────────────────
+// ── Pre-run: dark navy panel (confidence ritual) ──────────────────────────────
 
 interface PreRunProps {
   authenticated: boolean | null;
@@ -142,87 +125,90 @@ function PreRun({
   runCheck,
 }: PreRunProps) {
   return (
-    <div className="max-w-2xl mx-auto space-y-10 py-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight text-[var(--color-brand-navy)] mb-2">
-          Closing readiness check
-        </h1>
-        <p className="text-[var(--color-brand-muted)]">
-          Run ten deterministic data-quality checks before letting Claude advise on the books.
-        </p>
-      </div>
+    <div className="max-w-md w-full">
+      <div className="bg-[var(--color-brand-navy)] rounded-2xl shadow-2xl p-8 space-y-6">
+        {/* Heading */}
+        <div>
+          <h1 className="font-[family-name:var(--font-display)] text-[1.6rem] font-semibold text-white leading-snug mb-2">
+            Financial Closing Readiness
+          </h1>
+          <p className="text-white/55 text-sm leading-relaxed">
+            Ten deterministic data-quality checks before Claude advises on the books.
+          </p>
+        </div>
 
-      {/* Data source */}
-      <section>
-        <h2 className="text-[10px] font-semibold text-[var(--color-brand-muted)] uppercase tracking-widest mb-3">
-          Data source
-        </h2>
-        {authenticated === null ? (
-          <p className="text-[var(--color-brand-muted)] text-sm">Checking connection…</p>
-        ) : authenticated ? (
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-medium">
-              <span className="w-2 h-2 rounded-full bg-[var(--color-brand-rose)]" />
-              Connected to Exact Online
+        <div className="border-t border-white/10" />
+
+        {/* Data source */}
+        <div>
+          <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2.5 font-medium">
+            Data source
+          </p>
+          {authenticated === null ? (
+            <p className="text-white/50 text-sm">Checking connection…</p>
+          ) : authenticated ? (
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 text-white text-sm">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              Exact Online connected
               {divisionId && (
-                <span className="opacity-70 font-normal">· division {divisionId}</span>
+                <span className="text-white/50 font-normal text-xs">· {divisionId}</span>
               )}
             </span>
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--color-brand-cream-deep)] text-[var(--color-brand-muted)] text-sm">
-              <span className="w-2 h-2 rounded-full bg-[var(--color-brand-muted)]" />
-              Not connected — using local files
-            </span>
-            <a
-              href={authRedirectUrl()}
-              className="text-sm text-[var(--color-brand-navy)] hover:text-[var(--color-brand-rose-deep)] underline"
-            >
-              Connect to Exact Online →
-            </a>
-          </div>
-        )}
-      </section>
-
-      {/* Period */}
-      <section>
-        <h2 className="text-[10px] font-semibold text-[var(--color-brand-muted)] uppercase tracking-widest mb-3">
-          Analysis period
-        </h2>
-        <div className="flex gap-4">
-          <DateField label="From" value={periodStart} onChange={setPeriodStart} />
-          <DateField label="To"   value={periodEnd}   onChange={setPeriodEnd}   />
+          ) : (
+            <div className="space-y-2">
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 text-white/60 text-sm">
+                <span className="w-2 h-2 rounded-full bg-white/30" />
+                Using local data files
+              </span>
+              <div>
+                <a
+                  href={authRedirectUrl()}
+                  className="text-xs text-white/50 hover:text-white underline"
+                >
+                  Connect to Exact Online →
+                </a>
+              </div>
+            </div>
+          )}
         </div>
-      </section>
 
-      {/* Run */}
-      <section>
+        {/* Period */}
+        <div>
+          <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2.5 font-medium">
+            Analysis period
+          </p>
+          <div className="flex gap-3">
+            <DarkDateField label="From" value={periodStart} onChange={setPeriodStart} />
+            <DarkDateField label="To"   value={periodEnd}   onChange={setPeriodEnd}   />
+          </div>
+        </div>
+
+        {/* CTA */}
         <button
           onClick={runCheck}
           disabled={loading}
-          className="w-full bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] py-3.5 px-6 rounded-lg font-medium hover:bg-[var(--color-brand-navy-soft)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+          className="w-full bg-white text-[var(--color-brand-navy)] py-3.5 rounded-xl font-semibold text-sm hover:bg-[var(--color-brand-cream)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {loading ? "Running 10 data quality checks…" : "Run readiness check"}
+          {loading ? "Running checks…" : "Run readiness check"}
         </button>
+
         {error && (
-          <div className="mt-4 p-4 bg-[var(--color-brand-rose)]/10 border border-[var(--color-brand-rose)] rounded-lg text-[var(--color-brand-rose-deep)] text-sm">
+          <div className="px-4 py-3 bg-[var(--color-brand-rose)]/20 border border-[var(--color-brand-rose)]/40 rounded-lg text-[var(--color-brand-rose)] text-sm">
             {error}
           </div>
         )}
-      </section>
+      </div>
     </div>
   );
 }
 
-// ── Sub-component: post-run executive summary ────────────────────────────────
+// ── Executive summary ─────────────────────────────────────────────────────────
 
 interface ExecSummaryProps {
   result: AnalysisResult;
   onRerun: () => void;
   onStartOver: () => void;
   showRerun: boolean;
-  // Re-run drawer needs the same period+run controls as PreRun
   periodStart: string;
   periodEnd: string;
   setPeriodStart: (s: string) => void;
@@ -248,162 +234,133 @@ function ExecutiveSummary({
   const { readiness } = result;
   const ratios = readiness.ratios;
 
-  // Top blocker by amount, then top 3 non-pass issues (blocker first, then fail, then warn).
   const ranked = readiness.checks
     .filter((c) => c.status !== "pass")
     .sort(severitySort)
     .slice(0, 3);
 
-  const topBlocker = readiness.checks.find((c) => c.status === "blocker") || null;
+  const blockerCount = readiness.checks.filter((c) => c.status === "blocker").length;
+  const passCount    = readiness.checks.filter((c) => c.status === "pass").length;
 
   return (
-    <div className="space-y-10">
-      {/* Score + status hero */}
-      <section className="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-8 items-center motion-safe:animate-fade-in-up">
+    <div className="space-y-8">
+      {/* Score hero */}
+      <section className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] rounded-xl p-6 grid grid-cols-1 md:grid-cols-[auto_1fr] gap-6 items-center motion-safe:animate-fade-in-up">
         <ScoreGauge score={readiness.overall_score} size={180} />
         <div>
-          <p className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-1">
-            Status
-          </p>
-          <p className="text-2xl font-semibold text-[var(--color-brand-navy)] mb-3">
+          <h1 className="font-[family-name:var(--font-display)] text-2xl font-semibold text-[var(--color-brand-navy)] mb-1">
             {readiness.advice_ready ? "Advisory ready" : "Advisory blocked"}
+          </h1>
+          <p className="text-sm text-[var(--color-brand-muted)] mb-4 max-w-md">
+            {readiness.advice_ready
+              ? "All blockers cleared. Claude can run a closing advisory on this period."
+              : blockerCount > 0
+              ? `${blockerCount} blocker${blockerCount > 1 ? "s" : ""} present. Resolve to unlock advisory.`
+              : `Score below the ${formatPct(0.6)} threshold. Resolve failing checks to enable advisory.`}
           </p>
-          {topBlocker ? (
-            <p className="text-sm text-[var(--color-brand-muted)] max-w-xl">
-              <span className="font-medium text-[var(--color-brand-ink)]">
-                {formatEur(topBlocker.affected_amount)}
-              </span>{" "}
-              in {topBlocker.label.toLowerCase()} — blocker. Fix this to unlock Claude advisory.
-            </p>
-          ) : readiness.advice_ready ? (
-            <p className="text-sm text-[var(--color-brand-muted)] max-w-xl">
-              All blockers cleared. Claude can run a closing advisory on this period.
-            </p>
-          ) : (
-            <p className="text-sm text-[var(--color-brand-muted)] max-w-xl">
-              Score below the {formatPct(0.6)} threshold. Resolve the failing checks to enable advisory.
-            </p>
-          )}
-          <p className="text-xs text-[var(--color-brand-muted)] mt-3">
-            Period: {periodStart} → {periodEnd}
-          </p>
+          {/* Status strip */}
+          <div className="flex items-center gap-3 text-xs mb-5">
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--color-status-pass-bg)] text-[var(--color-status-pass)] font-medium border border-[var(--color-status-pass)]/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-status-pass)]" />
+              {passCount} passing
+            </span>
+            {blockerCount > 0 && (
+              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--color-status-blocker-bg)] text-[var(--color-status-blocker)] font-medium border border-[var(--color-status-blocker)]/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-status-blocker)]" />
+                {blockerCount} blocker{blockerCount > 1 ? "s" : ""}
+              </span>
+            )}
+            <span className="text-[var(--color-brand-muted)]">
+              {periodStart} — {periodEnd}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/report"
+              className="px-4 py-2 rounded-lg bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-medium hover:bg-[var(--color-brand-navy-soft)] transition-colors"
+            >
+              Full report
+            </Link>
+            <Link
+              href="/advisory"
+              className="px-4 py-2 rounded-lg border border-[var(--color-brand-line)] text-[var(--color-brand-navy)] text-sm font-medium hover:bg-[var(--color-brand-cream-deep)] transition-colors"
+            >
+              {readiness.advice_ready ? "Advisory" : "Guided diagnosis"}
+            </Link>
+            <button
+              onClick={onRerun}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-navy)] transition-colors"
+            >
+              {showRerun ? "Cancel" : "Re-run"}
+            </button>
+            <button
+              onClick={onStartOver}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-rose-deep)] transition-colors"
+            >
+              Clear
+            </button>
+          </div>
         </div>
       </section>
 
-      {/* Ratios */}
+      {/* KPI tiles */}
       {ratios && (
         <section>
-          <h2 className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-3">
+          <h2 className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-3 font-semibold">
             Financial ratios
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            <KpiTile
-              label="DSO"
-              value={ratios.dso_days.value !== null ? formatDays(ratios.dso_days.value) : "—"}
-              caveat={!ratios.dso_days.reliable ? ratios.dso_days.note : null}
-              delay={0}
-            />
-            <KpiTile
-              label="DPO"
-              value={ratios.dpo_days.value !== null ? formatDays(ratios.dpo_days.value) : "—"}
-              caveat={!ratios.dpo_days.reliable ? ratios.dpo_days.note : null}
-              delay={60}
-            />
-            <KpiTile
-              label="Working capital"
-              value={formatCompactEur(ratios.working_capital.value)}
-              caveat={!ratios.working_capital.reliable ? ratios.working_capital.note : null}
-              delay={120}
-            />
-            <KpiTile
-              label="Revenue"
-              value={formatCompactEur(ratios.revenue_period.value)}
-              caveat={!ratios.revenue_period.reliable ? ratios.revenue_period.note : null}
-              delay={180}
-            />
-            <KpiTile
-              label="Gross margin"
-              value={
-                ratios.gross_profit_margin.value !== null
-                  ? formatPct(ratios.gross_profit_margin.value, 1)
-                  : "—"
-              }
-              caveat={!ratios.gross_profit_margin.reliable ? ratios.gross_profit_margin.note : null}
-              delay={240}
-            />
+            <KpiTile label="DSO" value={ratios.dso_days.value !== null ? formatDays(ratios.dso_days.value) : "—"} caveat={!ratios.dso_days.reliable ? ratios.dso_days.note : null} delay={0} />
+            <KpiTile label="DPO" value={ratios.dpo_days.value !== null ? formatDays(ratios.dpo_days.value) : "—"} caveat={!ratios.dpo_days.reliable ? ratios.dpo_days.note : null} delay={60} />
+            <KpiTile label="Working capital" value={formatCompactEur(ratios.working_capital.value)} caveat={!ratios.working_capital.reliable ? ratios.working_capital.note : null} delay={120} />
+            <KpiTile label="Revenue" value={formatCompactEur(ratios.revenue_period.value)} caveat={!ratios.revenue_period.reliable ? ratios.revenue_period.note : null} delay={180} />
+            <KpiTile label="Gross margin" value={ratios.gross_profit_margin.value !== null ? formatPct(ratios.gross_profit_margin.value, 1) : "—"} caveat={!ratios.gross_profit_margin.reliable ? ratios.gross_profit_margin.note : null} delay={240} />
           </div>
         </section>
       )}
 
       {/* Top issues */}
-      <section>
-        <h2 className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-3">
-          Top issues
-        </h2>
-        <ul className="space-y-2">
-          {ranked.map((c, i) => (
-            <li
-              key={c.check_id}
-              className="bg-white border border-[var(--color-brand-line)] rounded-lg p-4 flex items-start gap-3 motion-safe:animate-fade-in-up"
-              style={{ animationDelay: `${i * 60}ms` }}
-            >
-              <StatusBadge status={c.status} className="mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-[var(--color-brand-ink)]">{c.label}</p>
-                <p className="text-sm text-[var(--color-brand-muted)] mt-0.5">
-                  {c.affected_amount !== null
-                    ? `${formatEur(c.affected_amount)} — `
-                    : ""}
-                  {c.status === "blocker"
-                    ? "Fix this → unlocks advisory."
-                    : c.score_after_fix !== null
-                    ? `Fix → score goes to ${formatPct(c.score_after_fix)}.`
-                    : ""}
-                </p>
+      {ranked.length > 0 && (
+        <section>
+          <h2 className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-3 font-semibold">
+            Top issues
+          </h2>
+          <div className="space-y-2">
+            {ranked.map((c, i) => (
+              <div
+                key={c.check_id}
+                className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] border-l-4 rounded-lg px-4 py-3 flex items-start gap-3 motion-safe:animate-fade-in-up"
+                style={{
+                  borderLeftColor:
+                    c.status === "blocker" ? "var(--color-status-blocker)"
+                    : c.status === "fail"  ? "var(--color-status-fail)"
+                    : "var(--color-status-warn)",
+                  animationDelay: `${i * 60}ms`,
+                }}
+              >
+                <StatusBadge status={c.status} className="mt-0.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-[var(--color-brand-ink)]">{c.label}</p>
+                  <p className="text-xs text-[var(--color-brand-muted)] mt-0.5">
+                    {c.affected_amount !== null ? `${formatEur(c.affected_amount)} — ` : ""}
+                    {c.status === "blocker"
+                      ? "Fix this to unlock advisory."
+                      : c.score_after_fix !== null
+                      ? `Fix this → score ${formatPct(c.score_after_fix)}.`
+                      : ""}
+                  </p>
+                </div>
               </div>
-            </li>
-          ))}
-          {ranked.length === 0 && (
-            <li className="text-sm text-[var(--color-brand-muted)]">
-              No outstanding issues. All 10 checks passed.
-            </li>
-          )}
-        </ul>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
 
-      {/* CTAs */}
-      <section className="flex flex-wrap gap-3">
-        <Link
-          href="/report"
-          className="px-5 py-2.5 rounded-lg bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-medium hover:bg-[var(--color-brand-navy-soft)] transition-colors"
-        >
-          View full report →
-        </Link>
-        <Link
-          href="/advisory"
-          className="px-5 py-2.5 rounded-lg border border-[var(--color-brand-navy)] text-[var(--color-brand-navy)] text-sm font-medium hover:bg-[var(--color-brand-cream-deep)] transition-colors"
-        >
-          {readiness.advice_ready ? "View advisory →" : "View guided diagnosis →"}
-        </Link>
-        <button
-          onClick={onRerun}
-          className="px-5 py-2.5 rounded-lg text-sm font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-navy)] transition-colors"
-        >
-          {showRerun ? "Cancel" : "Re-run with different period"}
-        </button>
-        <button
-          onClick={onStartOver}
-          className="px-5 py-2.5 rounded-lg text-sm font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-rose-deep)] transition-colors"
-        >
-          Start over
-        </button>
-      </section>
-
-      {/* Re-run drawer (collapsible) */}
+      {/* Re-run drawer */}
       {showRerun && (
-        <section className="bg-white border border-[var(--color-brand-line)] rounded-lg p-5 motion-safe:animate-fade-in-up">
-          <h3 className="text-sm font-medium text-[var(--color-brand-ink)] mb-4">
-            Re-run readiness on a different period
+        <section className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] rounded-xl p-5 motion-safe:animate-fade-in-up">
+          <h3 className="text-sm font-semibold text-[var(--color-brand-ink)] mb-4">
+            Re-run on a different period
           </h3>
           <div className="flex flex-wrap items-end gap-4">
             <DateField label="From" value={periodStart} onChange={setPeriodStart} />
@@ -411,25 +368,47 @@ function ExecutiveSummary({
             <button
               onClick={runCheck}
               disabled={loading}
-              className="px-5 py-2.5 rounded-lg bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-medium hover:bg-[var(--color-brand-navy-soft)] disabled:opacity-50 transition-colors"
+              className="px-5 py-2.5 rounded-lg bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-semibold hover:bg-[var(--color-brand-navy-soft)] disabled:opacity-50 transition-colors"
             >
               {loading ? "Running…" : "Run"}
             </button>
           </div>
-          {error && (
-            <p className="mt-3 text-sm text-[var(--color-brand-rose-deep)]">{error}</p>
-          )}
+          {error && <p className="mt-3 text-sm text-[var(--color-status-blocker)]">{error}</p>}
         </section>
       )}
     </div>
   );
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function severitySort(a: ReadinessCheck, b: ReadinessCheck): number {
   const order = { blocker: 0, fail: 1, warn: 2, pass: 3 } as const;
   return order[a.status] - order[b.status];
+}
+
+function DarkDateField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (s: string) => void;
+}) {
+  return (
+    <div className="flex-1">
+      <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-1.5 font-medium">
+        {label}
+      </label>
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-white/40 [color-scheme:dark]"
+      />
+    </div>
+  );
 }
 
 function DateField({
@@ -443,14 +422,14 @@ function DateField({
 }) {
   return (
     <div>
-      <label className="block text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-1.5">
+      <label className="block text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-1.5 font-medium">
         {label}
       </label>
       <input
         type="date"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="border border-[var(--color-brand-line)] rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-navy)]"
+        className="border border-[var(--color-brand-line)] rounded-lg px-3 py-2 text-sm bg-[var(--color-brand-surface)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-navy)]"
       />
     </div>
   );

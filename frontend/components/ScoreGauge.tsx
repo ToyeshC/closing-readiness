@@ -66,7 +66,7 @@ export function ScoreGauge({
           cy={cy}
           r={radius}
           fill="none"
-          stroke={isReady ? "var(--color-brand-navy)" : "var(--color-brand-rose-deep)"}
+          stroke={isReady ? "var(--color-status-pass)" : "var(--color-brand-rose-deep)"}
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={circumference}

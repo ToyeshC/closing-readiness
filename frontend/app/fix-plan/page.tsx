@@ -45,9 +45,9 @@ function PlanItemCard({
 
   return (
     <div
-      className={`bg-white border rounded-lg p-5 transition-all motion-safe:animate-fade-in-up ${
+      className={`bg-[var(--color-brand-surface)] border rounded-xl p-5 transition-all motion-safe:animate-fade-in-up ${
         selected
-          ? "border-[var(--color-brand-navy)] ring-1 ring-[var(--color-brand-navy)]/30"
+          ? "border-[var(--color-brand-navy)] ring-1 ring-[var(--color-brand-navy)]/20"
           : "border-[var(--color-brand-line)]"
       }`}
       style={{ animationDelay: `${delay}ms` }}
@@ -86,7 +86,7 @@ function PlanItemCard({
       <p className="text-sm text-[var(--color-brand-ink)] font-medium mb-3">{item.issue_summary}</p>
 
       {/* Proposed action */}
-      <div className="bg-[var(--color-brand-cream)] border border-[var(--color-brand-line)] rounded p-3 mb-3">
+      <div className="border-t border-[var(--color-brand-line)] pt-3 mb-3">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-brand-muted)] mb-1.5">
           Proposed action in Exact Online
         </p>
@@ -235,7 +235,7 @@ export default function FixPlanPage() {
 
       <div className="max-w-3xl mx-auto w-full px-6 sm:px-8 py-10 flex-1">
         {/* EU AI Act Art. 13 disclosure — not dismissible on this page */}
-        <div className="flex items-start gap-3 px-4 py-3 bg-[var(--color-brand-cream-deep)] border border-[var(--color-brand-line)] rounded-lg text-xs text-[var(--color-brand-muted)] mb-6">
+        <div className="flex items-start gap-3 px-4 py-3 bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] border-l-4 border-l-[var(--color-brand-navy)]/30 rounded-lg text-xs text-[var(--color-brand-muted)] mb-6">
           <p>
             <span className="font-semibold text-[var(--color-brand-ink)]">AI-generated fix plan.</span>{" "}
             {plan.ai_disclosure}
@@ -263,7 +263,7 @@ export default function FixPlanPage() {
         </div>
 
         {/* Approval panel */}
-        <div className="bg-white border border-[var(--color-brand-line)] rounded-lg p-5 sticky bottom-6">
+        <div className="bg-[var(--color-brand-surface)] border-t border-[var(--color-brand-line)] p-5 sticky bottom-0 shadow-[0_-4px_16px_rgba(0,0,0,0.06)]">
           <div className="mb-3">
             <label className="block text-xs font-semibold text-[var(--color-brand-muted)] mb-1.5 uppercase tracking-wide">
               Notes (optional)
