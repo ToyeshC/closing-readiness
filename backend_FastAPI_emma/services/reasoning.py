@@ -147,4 +147,10 @@ Return JSON: {{"guidance": [{{"issue": str, "impact": str, "fix_step": str}}]}}"
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
     )
-    return resp.content[0].text
+    raw = resp.content[0].text.strip()
+    if raw.startswith("```"):
+        try:
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+        except IndexError:
+            pass
+    return raw

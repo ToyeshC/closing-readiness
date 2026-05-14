@@ -250,3 +250,71 @@ After Emma handed off the full stack, an adversarial audit surfaced ~30 backend 
 - File-upload widget for tax PDFs (would replace `demo_seed/`).
 
 These all have stronger production arguments than what we shipped. They didn't move the demo needle in 24h.
+
+---
+
+# Post-Demo Product Direction (2026-05-14)
+
+After the demo session with the hackathon host, a post-MVP product direction was decided. Decisions below capture architecture choices made for the polish phase.
+
+---
+
+## EU AI Act compliance framing
+
+**Relevant context:** The product is used by professional financial advisors (B2B), not consumers. It advises on financial closing readiness for Dutch SME clients. It does not produce consumer credit scores or loan decisions.
+
+**Risk tier:** Grey zone between Limited Risk and High Risk. Annex III, Section 5b (creditworthiness evaluation for natural persons) does not strictly apply — this is B2B advisory, not consumer lending. However, because the output influences financial decisions (timing of M&A, closing readiness, tax position), some High Risk-adjacent obligations are appropriate to follow voluntarily.
+
+**What we must build before production client use:**
+
+| Requirement | Article | What it means for us |
+|---|---|---|
+| Disclose AI output to users | Art. 13 | Visible "AI-generated" banner on Advisory and Fix Plan pages. The FACT/ASSUMPTION/ADVICE tagging is a good start but a banner is required. |
+| Human oversight | Art. 14 | The fix-plan approval flow (user reviews, approves/rejects each item) satisfies this. All advisory is plan-mode — the AI never autonomously executes actions. |
+| Audit trail of LLM calls | Art. 12 | LangWatch traces cover this. The `PUT /api/v1/fix-plan/{plan_id}/approve` endpoint logs advisor approval decisions to LangWatch for Article 14 evidence. |
+| Data processor agreements | Art. 28 | Anthropic and LangWatch are data processors (they process client financial data in their infrastructure). We need signed DPA agreements with both before going live with real client data. Anthropic's DPA is available at trust.anthropic.com. LangWatch has a DPA in their enterprise tier. |
+| No autonomous financial decisions | Art. 14 | Maintained as a hard invariant: the AI proposes, the human executes. No write-back to Exact Online. This is architectural — the agent scope is advisory-only. |
+
+**Why advisory-only matters legally:** If the system wrote journal entries back to Exact Online autonomously, it would be taking legally binding financial actions on behalf of the client. This triggers far stronger compliance obligations and professional liability questions. Advisory-only + human approval is the correct boundary.
+
+---
+
+## Agentic fix-plan: plan-mode UX, not autonomous execution
+
+**Choice:** New `POST /api/v1/fix-plan` endpoint. Claude generates a `FixPlan` with one `FixPlanItem` per failing check — each item has `proposed_action`, `confidence`, `risk_level`, `estimated_effort`. Frontend shows an interactive review card per item (approve/reject/add note). Approved plan is logged to LangWatch. AI never writes to Exact Online.
+
+**Why plan-mode specifically:** The host asked for "taking the report one step further." The key insight is that the value is not automation — it's structured guidance. A bookkeeper who gets a numbered list of exact Exact Online actions (with account codes and amounts from the actual data) saves hours compared to reading a paragraph of advisory text. The plan-mode approval flow is also the EU AI Act Article 14 human-oversight mechanism.
+
+**Analogy to Claude Code:** Claude Code's plan mode proposes changes, user approves, then Claude executes. Our flow is: Claude proposes Exact Online actions, advisor approves, advisor executes manually. Same UX pattern, advisory-only scope.
+
+---
+
+## AR/AP per-counterparty aging breakdown
+
+**Choice:** Added `ar_aging_detail: list[AgingEntry]` and `ap_aging_detail: list[AgingEntry]` to `FinancialRatios`. Each entry has counterparty name, total open amount, aging bucket (0-30, 31-60, 61-90, 90+ days), and invoice reference. Top 10 by amount; remainder rolled into an "Other (N entries)" bucket.
+
+**Why:** Host specifically said "AR and AP given continuously gives a lot of clarity." The aggregate DSO/DPO days don't tell an advisor which client owes money or which supplier is overdue. Per-counterparty aging is the standard AR/AP report in any accounting system — we should expose it.
+
+**Implementation note:** Aging detail runs the same greedy matching algorithm as `_open_invoices` to identify unmatched invoices, then groups by `naam` (counterparty name field, present in both local and Exact Online data). Age is computed from `boekdatum` (booking date) to `period_end` — oldest invoice per counterparty determines the bucket displayed.
+
+---
+
+## CBS StatLine API for sector benchmarks
+
+**Choice:** `backend/services/benchmarks.py` fetches sector financial benchmarks from the CBS OData API (free, no auth). Gross margin and revenue per FTE for SBI 95.29 (bicycle repair sector). DSO/DPO from ING Economisch Bureau Sector Monitor (published annually, used as static estimates). Falls back to curated static data if the API is unavailable. Result cached 24h.
+
+**Why CBS, not hardcoded numbers:** The current system prompt told Claude to "use training knowledge about Dutch SME benchmarks" — that's a hallucination vector and fails the FACT/ASSUMPTION labeling principle. CBS data is official, sourced from corporate tax filings, and citable. "Sourced from CBS StatLine 2022" is something we can put on screen without an asterisk.
+
+**Why CBS cannot give DSO/DPO:** Working capital metrics (days outstanding) require knowing when individual invoices were issued and when they were paid. CBS aggregates by sector from tax declarations — there is no invoice-level data in macro statistics. ING and ABN AMRO publish sector-level payment behavior reports based on their transaction data; these are used as the DSO/DPO reference.
+
+**Sector classification for Fietsatelier Morgenwind:** SBI 95.29 (Reparatie van overige consumentengoederen). This covers bicycle repair. If the client also sells bicycles, SBI 47.64 (Detailhandel sportartikelen) would also apply — the benchmark service accepts `sbi_code` as a parameter.
+
+---
+
+## OAuth token expiry → 502 (known issue, deferred)
+
+**Current behavior:** When the Exact Online refresh token expires, `get_access_token()` raises an httpx exception from the 400 response, which is caught generically and wrapped as a 502 with a confusing error string. The "Re-run with different period" button on the frontend shows this as a cryptic 502 JSON error.
+
+**Deferred fix:** Parse the 400 response body for `"error": "invalid_grant"` and raise `HTTPException(status_code=401, detail="Exact Online session expired — reconnect via /auth/exact/redirect")`. Frontend can then show a reconnect CTA instead of a raw error.
+
+**Immediate workaround:** Visit `/auth/exact/redirect` to re-authenticate. Tokens are fresh for several hours after re-authentication.
