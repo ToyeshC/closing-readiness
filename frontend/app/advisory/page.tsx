@@ -130,24 +130,24 @@ function InsightsPanel({
       )}
 
       {/* Client letter draft */}
-      {insights.client_letter_nl && (
+      {insights.client_letter && (
         <div className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] rounded-xl overflow-hidden motion-safe:animate-fade-in-up">
           <button
             onClick={() => setLetterOpen((v) => !v)}
             className="w-full flex items-center justify-between px-4 py-3 text-left cursor-pointer hover:bg-[var(--color-brand-cream)] transition-colors"
           >
             <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-brand-navy)]">
-              Client letter draft (Nederlands)
+              Client letter draft (English)
             </span>
             <span className="text-xs text-[var(--color-brand-muted)]">{letterOpen ? "▲" : "▼"}</span>
           </button>
           {letterOpen && (
             <div className="border-t border-[var(--color-brand-line)] px-4 py-4">
               <p className="text-sm text-[var(--color-brand-ink)] leading-relaxed whitespace-pre-wrap mb-3">
-                {insights.client_letter_nl}
+                {insights.client_letter}
               </p>
               <button
-                onClick={() => onCopyLetter(insights.client_letter_nl!)}
+                onClick={() => onCopyLetter(insights.client_letter!)}
                 className="inline-flex items-center gap-1.5 text-xs text-[var(--color-brand-navy)] hover:underline cursor-pointer font-medium"
               >
                 {letterCopied ? "✓ Copied" : "Copy to clipboard"}

@@ -155,7 +155,7 @@ Produce structured insights in four categories:
 
 3. check_correlations: Group FAILING checks that likely share a single root cause. If two failures are independent, do not group them. E.g. revenue reconciliation + VAT reconciliation failures often both stem from GL period mis-allocation.
 
-4. client_letter_nl: A single professional Dutch paragraph (~5 sentences) the accountant can paste directly into the client advisory letter. Formal register. Begin with "In het kader van de jaarafsluiting...".
+4. client_letter: A single professional English paragraph (~5 sentences) the accountant can paste directly into the client advisory letter. Formal register. Begin with "In the context of the year-end closing...".
 
 Return ONLY valid JSON, no prose:
 {
@@ -174,7 +174,7 @@ Return ONLY valid JSON, no prose:
       "explanation": "why they are linked and what to investigate first"
     }
   ],
-  "client_letter_nl": "professional Dutch paragraph"
+  "client_letter": "professional English paragraph"
 }"""
 
 
