@@ -16,5 +16,5 @@ anthropic
 langwatch
 # openai dropped — reasoning.py switched from OpenRouter (OpenAI client) to direct Anthropic SDK.
 
-# PDF generation — requires system libs: brew install cairo pango gdk-pixbuf (macOS)
-weasyprint
+# PDF generation — pure Python, no system lib dependencies
+xhtml2pdf

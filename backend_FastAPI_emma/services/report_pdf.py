@@ -291,5 +291,8 @@ code {{ font-family: "Courier New", monospace; font-size: 8.5pt; }}
 
 
 def html_to_pdf(html: str) -> bytes:
-    from weasyprint import HTML
-    return HTML(string=html).write_pdf()
+    import io
+    from xhtml2pdf import pisa
+    buf = io.BytesIO()
+    pisa.CreatePDF(src=html, dest=buf, encoding="utf-8")
+    return buf.getvalue()
