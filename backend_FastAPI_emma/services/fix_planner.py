@@ -35,7 +35,7 @@ Your task: produce a concrete, step-by-step fix plan that a human bookkeeper can
 
 Rules:
 1. Each item covers exactly one failing check.
-2. proposed_action must be a specific Exact Online action (e.g., "Open Exact Online → Financial → Journal Entries → filter account 1250 → reclassify each entry to the correct account").
+2. proposed_action must be a specific Exact Online action (e.g., "Open Exact Online → Financial → Journal Entries → filter account 1250 → reclassify each entry to the correct account"). Keep proposed_action under 40 words.
 3. Every number you reference must come verbatim from the issues list provided.
 4. confidence reflects how certain you are the proposed action will resolve the issue.
 5. risk_level reflects the risk of executing this action incorrectly (high = irreversible or regulatory impact).
@@ -83,7 +83,7 @@ Prioritise blockers first, then high severity, then medium."""
 
     resp = _anthropic_client.messages.create(
         model=_MODEL,
-        max_tokens=2048,
+        max_tokens=4096,
         system=_FIX_PLAN_SYSTEM,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -144,8 +144,77 @@ Period: {period_start} to {period_end}"""
     return None
 
 
+_LETTER_EN_SYSTEM = """You are a financial closing advisor writing a professional advisory letter for a Dutch SME client.
+Write a single formal English paragraph (~5 sentences) that an accountant can include in a client advisory letter.
+Cover the key data quality findings, overall readiness score, and next steps.
+Start with "In the context of the annual closing review for...".
+Return only the letter paragraph, no other text."""
+
+
+@langwatch.trace(name="letter_en_call")
+def generate_letter_en(report, insights: dict) -> str:
+    """Generate an English version of the client advisory letter."""
+    whats_working = insights.get("whats_working", "")
+    blockers = [c for c in report.checks if c.status == "blocker"]
+    failing = [c for c in report.checks if c.status in ("fail", "warn")]
+
+    prompt = f"""Generate an English advisory letter paragraph for this closing readiness report.
+
+Period: {report.dataset.period_start} to {report.dataset.period_end}
+Overall score: {report.overall_score:.0%}
+Advice ready: {report.advice_ready}
+
+Blockers ({len(blockers)}): {', '.join(c.label for c in blockers) or 'None'}
+Failing checks ({len(failing)}): {', '.join(c.label for c in failing) or 'None'}
+What is working: {whats_working or 'Not yet analysed'}"""
+
+    resp = _anthropic_client.messages.create(
+        model=_MODEL,
+        max_tokens=600,
+        system=_LETTER_EN_SYSTEM,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.content[0].text.strip()
+
+
+_LETTER_NL_SYSTEM = """U bent een Nederlandse financieel adviseur. Schrijf een beknopte sluitingsgereedheidsbrief in formeel Nederlands (max 250 woorden).
+Vermeld de periode, de overall score, de belangrijkste bevindingen en aanbevolen vervolgstappen.
+Begin met "In het kader van de jaarafsluiting...".
+Onderteken als "Consult&Co Financieel Advies".
+Geef alleen de brieftekst terug, geen andere tekst."""
+
+
+@langwatch.trace(name="letter_nl_call")
+def generate_letter_nl(report, insights: dict) -> str:
+    """Generate a Dutch version of the client advisory letter as fallback."""
+    whats_working = insights.get("whats_working", "")
+    blockers = [c for c in report.checks if c.status == "blocker"]
+    failing = [c for c in report.checks if c.status in ("fail", "warn")]
+
+    prompt = f"""Genereer een Nederlandse adviesbrief voor dit sluitingsgereedheidsrapport.
+
+Periode: {report.dataset.period_start} tot {report.dataset.period_end}
+Overall score: {report.overall_score:.0%}
+Advies gereed: {report.advice_ready}
+
+Blokkades ({len(blockers)}): {', '.join(c.label for c in blockers) or 'Geen'}
+Falende checks ({len(failing)}): {', '.join(c.label for c in failing) or 'Geen'}
+Wat werkt goed: {whats_working or 'Nog niet geanalyseerd'}"""
+
+    resp = _anthropic_client.messages.create(
+        model=_MODEL,
+        max_tokens=600,
+        system=_LETTER_NL_SYSTEM,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.content[0].text.strip()
+
+
 _INSIGHTS_SYSTEM = """You are a financial closing advisor for Dutch SMEs.
 You are given a data readiness report with passing and failing checks.
+
+Respond in English for all fields (whats_working, early_warnings, check_correlations).
+The client_letter_nl field must be in formal Dutch only.
 
 Produce structured insights in four categories:
 

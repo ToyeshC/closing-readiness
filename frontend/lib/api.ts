@@ -1,6 +1,6 @@
 // Centralized API surface. Replaces inline fetch + API_URL constants across pages.
 
-import type { AnalysisResult, FixPlan, FixPlanItem, InsightsResult, SourceLine } from "../app/types";
+import type { AnalysisResult, FixPlan, FixPlanItem, InsightsResult, ReportOptions, SourceLine } from "../app/types";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -69,6 +69,25 @@ export async function fetchInsights(): Promise<InsightsResult> {
     throw new Error(`Insights failed (${r.status})${text ? `: ${text.slice(0, 200)}` : ""}`);
   }
   return r.json();
+}
+
+export async function downloadPdfReport(options: ReportOptions): Promise<void> {
+  const r = await fetch(`${API_URL}/api/v1/report/pdf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(options),
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    throw new Error(`PDF generation failed (${r.status})${text ? `: ${text.slice(0, 200)}` : ""}`);
+  }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "closing-readiness-report.pdf";
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function approveFixPlan(

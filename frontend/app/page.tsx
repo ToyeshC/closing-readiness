@@ -71,7 +71,17 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col">
+    <main
+      className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col"
+      style={{
+        backgroundImage: `repeating-linear-gradient(
+          180deg,
+          transparent, transparent 31px,
+          rgba(229,223,210,0.4) 31px,
+          rgba(229,223,210,0.4) 32px
+        )`,
+      }}
+    >
       <Header current="home" authenticated={!!authenticated} divisionId={divisionId} />
 
       {result ? (
@@ -91,7 +101,7 @@ export default function Home() {
           />
         </div>
       ) : (
-        <div className="flex-1 flex items-center justify-center py-16 px-6">
+        <div className="flex-1 flex">
           <PreRun
             authenticated={authenticated}
             divisionId={divisionId}
@@ -109,7 +119,7 @@ export default function Home() {
   );
 }
 
-// ── Pre-run: dark navy panel (confidence ritual) ──────────────────────────────
+// ── Pre-run: split hero layout ────────────────────────────────────────────────
 
 interface PreRunProps {
   authenticated: boolean | null;
@@ -135,78 +145,101 @@ function PreRun({
   runCheck,
 }: PreRunProps) {
   return (
-    <div className="max-w-md w-full">
-      <div className="bg-[var(--color-brand-navy)] rounded-2xl shadow-2xl p-8 space-y-6">
-        {/* Heading */}
-        <div>
-          <h1 className="font-[family-name:var(--font-display)] text-[1.6rem] font-semibold text-white leading-snug mb-2">
+    <div className="w-full flex flex-col md:flex-row min-h-[calc(100vh-64px)]">
+
+      {/* Left — hero copy with ledger background */}
+      <div
+        className="flex-1 flex flex-col justify-center px-10 lg:px-20 py-16"
+        style={{
+          backgroundImage: `repeating-linear-gradient(
+            180deg,
+            transparent,
+            transparent 31px,
+            rgba(229,223,210,0.5) 31px,
+            rgba(229,223,210,0.5) 32px
+          )`,
+        }}
+      >
+        <div className="max-w-lg">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--color-brand-rose-deep)] mb-8">
             Financial Closing Readiness
-          </h1>
-          <p className="text-white/55 text-sm leading-relaxed">
-            Ten deterministic data-quality checks before Claude advises on the books.
+          </p>
+          <div className="flex gap-5 mb-8">
+            <div className="w-0.5 self-stretch bg-[var(--color-brand-rose)] shrink-0 rounded-full" />
+            <h1 className="font-[family-name:var(--font-display)] text-5xl lg:text-6xl font-bold text-[var(--color-brand-navy)] leading-[1.06]">
+              Your books,<br />ready for<br />closing.
+            </h1>
+          </div>
+          <p className="text-[var(--color-brand-muted)] text-base leading-relaxed max-w-sm">
+            Ten deterministic data-quality checks protect every AI advisory from dirty books.
+            Clean data in, trusted advisory out.
           </p>
         </div>
+      </div>
 
-        <div className="border-t border-white/10" />
+      {/* Right — form panel */}
+      <div className="md:w-[400px] lg:w-[460px] bg-[var(--color-brand-cream-deep)] flex items-center px-8 lg:px-12 py-16 border-l border-[var(--color-brand-line)]">
+        <div className="w-full space-y-6">
 
-        {/* Data source */}
-        <div>
-          <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2.5 font-medium">
-            Data source
-          </p>
-          {authenticated === null ? (
-            <p className="text-white/50 text-sm">Checking connection…</p>
-          ) : authenticated ? (
-            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 text-white text-sm">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              Exact Online connected
-              {divisionId && (
-                <span className="text-white/50 font-normal text-xs">· {divisionId}</span>
-              )}
-            </span>
-          ) : (
-            <div className="space-y-2">
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 text-white/60 text-sm">
-                <span className="w-2 h-2 rounded-full bg-white/30" />
-                Using local data files
+          {/* Data source */}
+          <div>
+            <p className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-2.5 font-medium">
+              Data source
+            </p>
+            {authenticated === null ? (
+              <p className="text-[var(--color-brand-muted)] text-sm">Checking connection…</p>
+            ) : authenticated ? (
+              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--color-brand-navy)]/8 text-[var(--color-brand-navy)] text-sm border border-[var(--color-brand-navy)]/15">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                Exact Online connected
+                {divisionId && (
+                  <span className="text-[var(--color-brand-muted)] font-normal text-xs">· {divisionId}</span>
+                )}
               </span>
-              <div>
-                <a
-                  href={authRedirectUrl()}
-                  className="text-xs text-white/50 hover:text-white underline"
-                >
-                  Connect to Exact Online →
-                </a>
+            ) : (
+              <div className="space-y-2">
+                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--color-brand-navy)]/6 text-[var(--color-brand-muted)] text-sm border border-[var(--color-brand-line)]">
+                  <span className="w-2 h-2 rounded-full bg-[var(--color-brand-muted)]/40" />
+                  Using local data files
+                </span>
+                <div>
+                  <a
+                    href={authRedirectUrl()}
+                    className="text-xs text-[var(--color-brand-muted)] hover:text-[var(--color-brand-navy)] underline"
+                  >
+                    Connect to Exact Online →
+                  </a>
+                </div>
               </div>
+            )}
+          </div>
+
+          {/* Period */}
+          <div>
+            <p className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-2.5 font-medium">
+              Analysis period
+            </p>
+            <div className="flex gap-3">
+              <DateField label="From" value={periodStart} onChange={setPeriodStart} />
+              <DateField label="To"   value={periodEnd}   onChange={setPeriodEnd}   />
+            </div>
+          </div>
+
+          {/* CTA */}
+          <button
+            onClick={runCheck}
+            disabled={loading}
+            className="w-full bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] py-3.5 rounded-xl font-semibold text-sm hover:bg-[var(--color-brand-navy-soft)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {loading ? "Running checks…" : "Run readiness check"}
+          </button>
+
+          {error && (
+            <div className="px-4 py-3 bg-[var(--color-status-blocker-bg)] border border-[var(--color-status-blocker)]/30 rounded-lg text-[var(--color-status-blocker)] text-sm">
+              {error}
             </div>
           )}
         </div>
-
-        {/* Period */}
-        <div>
-          <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2.5 font-medium">
-            Analysis period
-          </p>
-          <div className="flex gap-3">
-            <DarkDateField label="From" value={periodStart} onChange={setPeriodStart} />
-            <DarkDateField label="To"   value={periodEnd}   onChange={setPeriodEnd}   />
-          </div>
-        </div>
-
-        {/* CTA */}
-        <button
-          onClick={runCheck}
-          disabled={loading}
-          className="w-full bg-white text-[var(--color-brand-navy)] py-3.5 rounded-xl font-semibold text-sm hover:bg-[var(--color-brand-cream)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {loading ? "Running checks…" : "Run readiness check"}
-        </button>
-
-        {error && (
-          <div className="px-4 py-3 bg-[var(--color-brand-rose)]/20 border border-[var(--color-brand-rose)]/40 rounded-lg text-[var(--color-brand-rose)] text-sm">
-            {error}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -259,7 +292,7 @@ function ExecutiveSummary({
         <ScoreGauge score={readiness.overall_score} size={180} />
         <div>
           <h1 className="font-[family-name:var(--font-display)] text-2xl font-semibold text-[var(--color-brand-navy)] mb-1">
-            {readiness.advice_ready ? "Advisory ready" : "Advisory blocked"}
+            {readiness.advice_ready ? "Advisory ready" : "Guided diagnosis available"}
           </h1>
           <p className="text-sm text-[var(--color-brand-muted)] mb-4 max-w-md">
             {readiness.advice_ready
