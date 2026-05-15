@@ -7,6 +7,7 @@ interface ScoreGaugeProps {
   score: number;            // 0..1
   size?: number;            // px
   threshold?: number;       // 0..1, default 0.6
+  variant?: "default" | "light";  // "light" for dark backgrounds
   className?: string;
 }
 
@@ -14,6 +15,7 @@ export function ScoreGauge({
   score,
   size = 160,
   threshold = 0.6,
+  variant = "default",
   className = "",
 }: ScoreGaugeProps) {
   const stroke = 12;
@@ -47,7 +49,7 @@ export function ScoreGauge({
           cy={cy}
           r={radius}
           fill="none"
-          stroke="var(--color-brand-cream-deep)"
+          stroke={variant === "light" ? "rgba(255,255,255,0.15)" : "var(--color-brand-cream-deep)"}
           strokeWidth={stroke}
         />
         {/* Threshold tick */}
@@ -80,10 +82,10 @@ export function ScoreGauge({
         />
       </svg>
       <div className="absolute flex flex-col items-center pointer-events-none">
-        <span className="text-3xl font-semibold tracking-tight text-[var(--color-brand-navy)]">
+        <span className={`text-3xl font-semibold tracking-tight ${variant === "light" ? "text-[var(--color-brand-cream)]" : "text-[var(--color-brand-navy)]"}`}>
           {formatPct(clamped)}
         </span>
-        <span className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mt-0.5">
+        <span className={`text-[10px] uppercase tracking-widest mt-0.5 ${variant === "light" ? "text-[var(--color-brand-cream)]/70" : "text-[var(--color-brand-muted)]"}`}>
           Readiness
         </span>
       </div>

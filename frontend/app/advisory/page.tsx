@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import type { AnalysisResult, CheckCorrelation, EarlyWarning, FixPlan, InsightsResult, ReadinessCheck } from "../types";
+import type { AnalysisResult, CheckCorrelation, EarlyWarning, FixPlan, InsightsResult, ReadinessCheck, ReportOptions } from "../types";
 import { Header } from "../../components/Header";
 import { PlanItemCard } from "../../components/PlanItemCard";
-import { fetchFixPlan, approveFixPlan, fetchInsights } from "../../lib/api";
+import { fetchFixPlan, approveFixPlan, fetchInsights, downloadPdfReport } from "../../lib/api";
 import { formatEur } from "../../lib/format";
 
 function typeStyle(type: "FACT" | "ASSUMPTION" | "ADVICE") {
@@ -106,18 +106,18 @@ function InsightsPanel({
         </div>
       )}
 
-      {/* Check correlations */}
+      {/* Root cause clusters */}
       {insights.check_correlations.length > 0 && (
-        <div className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] border-l-4 border-l-amber-400 rounded-xl p-4 motion-safe:animate-fade-in-up">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-700 mb-3">
-            Related issues
+        <div className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] border-l-4 border-l-[var(--color-brand-navy)]/30 rounded-xl p-4 motion-safe:animate-fade-in-up">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-brand-navy)] mb-3">
+            Root cause clusters
           </p>
           <div className="space-y-3">
             {insights.check_correlations.map((corr: CheckCorrelation, i: number) => (
               <div key={i}>
                 <div className="flex flex-wrap gap-1.5 mb-1.5">
                   {corr.check_ids.map((id) => (
-                    <span key={id} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                    <span key={id} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--color-brand-navy)]/8 text-[var(--color-brand-navy)] border border-[var(--color-brand-navy)]/20">
                       {id}
                     </span>
                   ))}
@@ -173,6 +173,17 @@ export default function FindingsPage() {
   const [insights, setInsights] = useState<InsightsResult | null>(null);
   const [insightsState, setInsightsState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
   const [letterCopied, setLetterCopied] = useState(false);
+  const [reportOptions, setReportOptions] = useState<ReportOptions>({
+    include_ratios: true,
+    include_checks: true,
+    include_insights: true,
+    include_fix_plan: true,
+    include_letter: true,
+    notes: "",
+    language: "en",
+  });
+  const [pdfState, setPdfState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -221,6 +232,19 @@ export default function FindingsPage() {
       setTimeout(() => setLetterCopied(false), 2000);
     } catch {
       // ignore clipboard errors
+    }
+  }
+
+  async function handleDownloadPdf() {
+    setPdfState("loading");
+    setPdfError(null);
+    try {
+      await downloadPdfReport(reportOptions);
+      setPdfState("done");
+      setTimeout(() => setPdfState("idle"), 3000);
+    } catch (err) {
+      setPdfError(err instanceof Error ? err.message : "PDF generation failed");
+      setPdfState("error");
     }
   }
 
@@ -366,14 +390,16 @@ export default function FindingsPage() {
             </div>
           </>
         ) : (
-          // Blocked — show issues and remediation plan CTA
+          // Guided diagnosis mode — advisor can proceed with awareness
           <>
-            <div className="mb-6 p-4 bg-[var(--color-status-blocker-bg)] border border-l-4 border-[var(--color-status-blocker)]/30 border-l-[var(--color-status-blocker)] rounded-lg motion-safe:animate-fade-in-up">
-              <p className="text-sm font-semibold text-[var(--color-status-blocker)] mb-1">
-                Advisory blocked{blocked_reason ? ` — ${blocked_reason}` : ""}
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl motion-safe:animate-fade-in-up">
+              <p className="text-sm font-semibold text-amber-800 mb-1">
+                Guided diagnosis mode{blocked_reason ? ` — ${blocked_reason}` : ""}
               </p>
-              <p className="text-sm text-[var(--color-brand-ink)]">
-                Resolve these issues in Exact Online before a closing advisory can run.
+              <p className="text-xs text-amber-700">
+                Data quality issues affect advisory accuracy. Fix recommendations are available below.
+                The guided analysis above is available — the advisor takes professional responsibility
+                for any output generated with unresolved issues.
               </p>
             </div>
 
@@ -474,6 +500,92 @@ export default function FindingsPage() {
             )}
           </>
         )}
+
+        {/* PDF Report Download */}
+        <div className="mt-10 pt-8 border-t border-[var(--color-brand-line)]">
+          <div className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] rounded-xl p-5">
+            <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-brand-navy)] mb-4">
+              Generate Report
+            </p>
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {(
+                [
+                  ["include_ratios", "Financial ratios"],
+                  ["include_checks", "Readiness checks"],
+                  ["include_insights", "AI insights"],
+                  ["include_fix_plan", "Fix plan"],
+                  ["include_letter", "Advisory letter"],
+                ] as Array<[keyof ReportOptions, string]>
+              ).map(([key, label]) => (
+                <label key={key} className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={reportOptions[key] as boolean}
+                    onChange={(e) =>
+                      setReportOptions((prev) => ({ ...prev, [key]: e.target.checked }))
+                    }
+                    className="w-3.5 h-3.5 accent-[var(--color-brand-navy)] cursor-pointer"
+                  />
+                  <span className="text-xs text-[var(--color-brand-ink)]">{label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-brand-muted)] mb-1.5">
+                Advisor notes
+              </label>
+              <textarea
+                value={reportOptions.notes}
+                onChange={(e) => setReportOptions((prev) => ({ ...prev, notes: e.target.value }))}
+                placeholder="Additional notes for the report…"
+                rows={2}
+                className="w-full text-sm border border-[var(--color-brand-line)] rounded px-3 py-2 bg-[var(--color-brand-cream)] text-[var(--color-brand-ink)] placeholder:text-[var(--color-brand-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-navy)] resize-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-1 rounded-lg border border-[var(--color-brand-line)] overflow-hidden">
+                {(["en", "nl"] as const).map((lang) => (
+                  <button
+                    key={lang}
+                    onClick={() => setReportOptions((prev) => ({ ...prev, language: lang }))}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                      reportOptions.language === lang
+                        ? "bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)]"
+                        : "text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+                    }`}
+                  >
+                    {lang.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-3">
+                {pdfState === "error" && pdfError && (
+                  <p className="text-xs text-[var(--color-status-blocker)]">{pdfError}</p>
+                )}
+                {pdfState === "done" && (
+                  <p className="text-xs text-[var(--color-status-pass)] font-medium">✓ Downloaded</p>
+                )}
+                <button
+                  onClick={handleDownloadPdf}
+                  disabled={pdfState === "loading"}
+                  className="px-5 py-2 rounded-lg bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-medium hover:bg-[var(--color-brand-navy-soft)] cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                >
+                  {pdfState === "loading" ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-[var(--color-brand-cream)] border-t-transparent rounded-full animate-spin inline-block" />
+                      Generating…
+                    </>
+                  ) : (
+                    "Download Report →"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
   );

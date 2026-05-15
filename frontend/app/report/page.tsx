@@ -53,7 +53,7 @@ export default function ReportPage() {
       {/* Full-width navy hero */}
       <section className="bg-[var(--color-brand-navy)] w-full">
         <div className="max-w-5xl mx-auto px-6 sm:px-8 py-12 flex flex-col sm:flex-row items-center gap-8 sm:gap-10">
-          <ScoreGauge score={readiness.overall_score} size={150} />
+          <ScoreGauge score={readiness.overall_score} size={150} variant="light" />
           <div className="flex-1 text-center sm:text-left">
             <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold text-white mb-2 leading-snug">
               Financial Closing Review
