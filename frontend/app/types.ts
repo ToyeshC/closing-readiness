@@ -99,3 +99,22 @@ export interface AnalysisResult {
   sector_benchmarks?: SectorBenchmarks | null
   trace_id?: string | null
 }
+
+export interface EarlyWarning {
+  check_id: string
+  check_label: string
+  signal: string
+  recommendation: string
+}
+
+export interface CheckCorrelation {
+  check_ids: string[]
+  explanation: string
+}
+
+export interface InsightsResult {
+  whats_working: string | null
+  early_warnings: EarlyWarning[]
+  check_correlations: CheckCorrelation[]
+  client_letter_nl: string | null
+}

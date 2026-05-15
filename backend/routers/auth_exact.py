@@ -146,9 +146,11 @@ async def oauth_callback(request: Request, code: str, state: str | None = None):
     )
 
     # Redirect back to the frontend after successful OAuth — token is now stored locally.
+    # ?fresh=1 tells the frontend to clear any stale analysis_result from localStorage
+    # so the user starts from the Overview (date picker) rather than seeing a stale report.
     # Also clear the consumed state cookie.
     frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
-    redirect = RedirectResponse(url=frontend_url)
+    redirect = RedirectResponse(url=f"{frontend_url}/?fresh=1")
     redirect.delete_cookie(key=_STATE_COOKIE)
     return redirect
 

@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import type { AnalysisResult, FixPlan, ReadinessCheck } from "../types";
+import type { AnalysisResult, CheckCorrelation, EarlyWarning, FixPlan, InsightsResult, ReadinessCheck } from "../types";
 import { Header } from "../../components/Header";
 import { PlanItemCard } from "../../components/PlanItemCard";
-import { fetchFixPlan, approveFixPlan } from "../../lib/api";
+import { fetchFixPlan, approveFixPlan, fetchInsights } from "../../lib/api";
 import { formatEur } from "../../lib/format";
 
 function typeStyle(type: "FACT" | "ASSUMPTION" | "ADVICE") {
@@ -65,6 +65,101 @@ function BlockerRow({ check }: { check: ReadinessCheck }) {
   );
 }
 
+function InsightsPanel({
+  insights,
+  letterCopied,
+  onCopyLetter,
+}: {
+  insights: InsightsResult;
+  letterCopied: boolean;
+  onCopyLetter: (text: string) => void;
+}) {
+  const [letterOpen, setLetterOpen] = useState(false);
+
+  return (
+    <div className="space-y-3">
+      {/* What's working */}
+      {(insights.whats_working || insights.early_warnings.length > 0) && (
+        <div className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] border-l-4 border-l-[var(--color-status-pass)] rounded-xl p-4 motion-safe:animate-fade-in-up">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-status-pass)] mb-2">
+            What&apos;s working
+          </p>
+          {insights.whats_working && (
+            <p className="text-sm text-[var(--color-brand-ink)] mb-3">{insights.whats_working}</p>
+          )}
+          {insights.early_warnings.length > 0 && (
+            <div className="space-y-2 border-t border-[var(--color-brand-line)] pt-3">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-700 mb-2">
+                Watch next quarter
+              </p>
+              {insights.early_warnings.map((w: EarlyWarning) => (
+                <div key={w.check_id} className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                  <p className="text-xs font-semibold text-amber-800 mb-0.5">{w.check_label}</p>
+                  <p className="text-xs text-amber-700 mb-1">{w.signal}</p>
+                  <p className="text-xs text-[var(--color-brand-muted)]">
+                    <span className="font-medium">Recommendation:</span> {w.recommendation}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Check correlations */}
+      {insights.check_correlations.length > 0 && (
+        <div className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] border-l-4 border-l-amber-400 rounded-xl p-4 motion-safe:animate-fade-in-up">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-700 mb-3">
+            Related issues
+          </p>
+          <div className="space-y-3">
+            {insights.check_correlations.map((corr: CheckCorrelation, i: number) => (
+              <div key={i}>
+                <div className="flex flex-wrap gap-1.5 mb-1.5">
+                  {corr.check_ids.map((id) => (
+                    <span key={id} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                      {id}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-xs text-[var(--color-brand-ink)]">{corr.explanation}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Client letter draft */}
+      {insights.client_letter_nl && (
+        <div className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] rounded-xl overflow-hidden motion-safe:animate-fade-in-up">
+          <button
+            onClick={() => setLetterOpen((v) => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left cursor-pointer hover:bg-[var(--color-brand-cream)] transition-colors"
+          >
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-brand-navy)]">
+              Client letter draft (Nederlands)
+            </span>
+            <span className="text-xs text-[var(--color-brand-muted)]">{letterOpen ? "▲" : "▼"}</span>
+          </button>
+          {letterOpen && (
+            <div className="border-t border-[var(--color-brand-line)] px-4 py-4">
+              <p className="text-sm text-[var(--color-brand-ink)] leading-relaxed whitespace-pre-wrap mb-3">
+                {insights.client_letter_nl}
+              </p>
+              <button
+                onClick={() => onCopyLetter(insights.client_letter_nl!)}
+                className="inline-flex items-center gap-1.5 text-xs text-[var(--color-brand-navy)] hover:underline cursor-pointer font-medium"
+              >
+                {letterCopied ? "✓ Copied" : "Copy to clipboard"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function FindingsPage() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
@@ -75,6 +170,9 @@ export default function FindingsPage() {
   const [approving, setApproving] = useState(false);
   const [approved, setApproved] = useState<number | null>(null);
   const [approveError, setApproveError] = useState<string | null>(null);
+  const [insights, setInsights] = useState<InsightsResult | null>(null);
+  const [insightsState, setInsightsState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const [letterCopied, setLetterCopied] = useState(false);
 
   useEffect(() => {
     try {
@@ -102,6 +200,27 @@ export default function FindingsPage() {
       setPlanState("loaded");
     } catch {
       setPlanState("idle");
+    }
+  }
+
+  async function handleGenerateInsights() {
+    setInsightsState("loading");
+    try {
+      const data = await fetchInsights();
+      setInsights(data);
+      setInsightsState("loaded");
+    } catch {
+      setInsightsState("error");
+    }
+  }
+
+  async function handleCopyLetter(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setLetterCopied(true);
+      setTimeout(() => setLetterCopied(false), 2000);
+    } catch {
+      // ignore clipboard errors
     }
   }
 
@@ -172,6 +291,39 @@ export default function FindingsPage() {
         {!bannerDismissed && (
           <AiDisclosureBanner onDismiss={() => setBannerDismissed(true)} />
         )}
+
+        {/* ── Insights section (always shown when result is present) ─────── */}
+        <div className="mb-6">
+          {insightsState === "idle" && (
+            <button
+              onClick={handleGenerateInsights}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--color-brand-navy)]/30 text-[var(--color-brand-navy)] text-sm font-medium hover:bg-[var(--color-brand-navy)]/5 cursor-pointer transition-colors"
+            >
+              Analyse what&apos;s working →
+            </button>
+          )}
+          {insightsState === "loading" && (
+            <div className="flex items-center gap-3 py-4 text-[var(--color-brand-muted)]">
+              <div className="w-4 h-4 border-2 border-[var(--color-brand-navy)] border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm">Analysing findings&hellip;</span>
+            </div>
+          )}
+          {insightsState === "error" && (
+            <button
+              onClick={handleGenerateInsights}
+              className="text-sm text-[var(--color-status-blocker)] hover:underline cursor-pointer"
+            >
+              Retry insights →
+            </button>
+          )}
+          {insightsState === "loaded" && insights && (
+            <InsightsPanel
+              insights={insights}
+              letterCopied={letterCopied}
+              onCopyLetter={handleCopyLetter}
+            />
+          )}
+        </div>
 
         {readiness.advice_ready ? (
           // Advisory outputs

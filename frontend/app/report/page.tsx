@@ -147,7 +147,7 @@ function MetricsStrip({ ratios }: { ratios: FinancialRatios }) {
   return (
     <section className="bg-[var(--color-brand-surface)] border-b border-[var(--color-brand-line)]">
       <div className="max-w-5xl mx-auto px-6 sm:px-8 py-5">
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {tiles.map(({ label, value, caveat }, i) => (
             <KpiTile key={label} label={label} value={value} caveat={caveat ?? null} delay={i * 40} />
           ))}

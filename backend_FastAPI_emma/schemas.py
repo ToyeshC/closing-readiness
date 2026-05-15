@@ -77,6 +77,25 @@ class SingleFixRequest(BaseModel):
     check_id: str
 
 
+class EarlyWarning(BaseModel):
+    check_id: str
+    check_label: str
+    signal: str
+    recommendation: str
+
+
+class CheckCorrelation(BaseModel):
+    check_ids: list[str]
+    explanation: str
+
+
+class InsightsResult(BaseModel):
+    whats_working: str | None = None
+    early_warnings: list[EarlyWarning] = []
+    check_correlations: list[CheckCorrelation] = []
+    client_letter_nl: str | None = None
+
+
 class AnalysisResult(BaseModel):
     # Top-level response shape returned by POST /api/v1/readiness.
     # Uses DataReadinessReportOut (not DataReadinessReport) so the full response
