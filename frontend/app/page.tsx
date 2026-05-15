@@ -17,9 +17,8 @@ export default function Home() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [divisionId, setDivisionId] = useState<number | null>(null);
 
-  const _lastYear = new Date().getFullYear() - 1;
-  const [periodStart, setPeriodStart] = useState(`${_lastYear}-01-01`);
-  const [periodEnd, setPeriodEnd] = useState(`${_lastYear}-12-31`);
+  const [periodStart, setPeriodStart] = useState("2024-01-01");
+  const [periodEnd, setPeriodEnd] = useState("2024-12-31");
 
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,12 +29,12 @@ export default function Home() {
     // Clear stale analysis after OAuth re-auth (?fresh=1 set by callback redirect)
     const params = new URLSearchParams(window.location.search);
     if (params.get("fresh") === "1") {
-      localStorage.removeItem("analysis_result");
+      sessionStorage.clear();
       window.history.replaceState({}, "", "/");
       return;
     }
     try {
-      const raw = localStorage.getItem("analysis_result");
+      const raw = sessionStorage.getItem("analysis_result");
       if (raw) setResult(JSON.parse(raw));
     } catch { /* ignore */ }
   }, []);
@@ -47,16 +46,20 @@ export default function Home() {
   }, []);
 
   function handleStartOver() {
-    localStorage.removeItem("analysis_result");
+    sessionStorage.clear();
     setResult(null);
   }
 
   async function runCheck() {
     setLoading(true);
     setError(null);
+    // Clear stale insights/plan from previous run
+    sessionStorage.removeItem("insights_result");
+    sessionStorage.removeItem("fix_plan");
+    Object.keys(sessionStorage).filter(k => k.startsWith("fix_")).forEach(k => sessionStorage.removeItem(k));
     try {
       const r = await runReadiness(periodStart, periodEnd);
-      localStorage.setItem("analysis_result", JSON.stringify(r));
+      sessionStorage.setItem("analysis_result", JSON.stringify(r));
       setResult(r);
       setShowRerun(false);
       if (!result) router.push("/report");

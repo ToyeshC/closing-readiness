@@ -149,14 +149,14 @@ export default function FindingsPage() {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("analysis_result");
+      const raw = sessionStorage.getItem("analysis_result");
       if (raw) setResult(JSON.parse(raw));
-      const rawInsights = localStorage.getItem("insights_result");
+      const rawInsights = sessionStorage.getItem("insights_result");
       if (rawInsights) {
         setInsights(JSON.parse(rawInsights));
         setInsightsState("loaded");
       }
-      const rawPlan = localStorage.getItem("fix_plan");
+      const rawPlan = sessionStorage.getItem("fix_plan");
       if (rawPlan) {
         setPlan(JSON.parse(rawPlan));
         setPlanState("loaded");
@@ -187,7 +187,7 @@ export default function FindingsPage() {
       const p = await fetchFixPlan();
       setPlan(p);
       setPlanState("loaded");
-      localStorage.setItem("fix_plan", JSON.stringify(p));
+      sessionStorage.setItem("fix_plan", JSON.stringify(p));
     } catch {
       setPlanState("idle");
     }
@@ -199,7 +199,7 @@ export default function FindingsPage() {
       const data = await fetchInsights();
       setInsights(data);
       setInsightsState("loaded");
-      localStorage.setItem("insights_result", JSON.stringify(data));
+      sessionStorage.setItem("insights_result", JSON.stringify(data));
     } catch {
       setInsightsState("error");
     }

@@ -28,7 +28,7 @@ export function CheckCard({ check, delay = 0 }: CheckCardProps) {
 
   useEffect(() => {
     try {
-      const cached = localStorage.getItem(`fix_${check.check_id}`);
+      const cached = sessionStorage.getItem(`fix_${check.check_id}`);
       if (cached) {
         setFixItem(JSON.parse(cached));
         setFixState("loaded");
@@ -43,7 +43,7 @@ export function CheckCard({ check, delay = 0 }: CheckCardProps) {
       const item = await fetchSingleCheckFix(check.check_id);
       setFixItem(item);
       setFixState("loaded");
-      localStorage.setItem(`fix_${check.check_id}`, JSON.stringify(item));
+      sessionStorage.setItem(`fix_${check.check_id}`, JSON.stringify(item));
     } catch {
       setFixState("error");
     }
