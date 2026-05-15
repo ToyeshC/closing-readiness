@@ -6,7 +6,7 @@ from datetime import date
 from pathlib import Path
 
 import langwatch
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Response
 from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
@@ -21,11 +21,13 @@ from backend_FastAPI_emma.schemas import (
     DataReadinessReportOut,
     EarlyWarning,
     InsightsResult,
+    ReportOptions,
     SingleFixRequest,
     SourceLineOut,
 )
 from backend.services.benchmarks import fetch_sector_benchmarks
-from backend_FastAPI_emma.services.fix_planner import generate_fix_plan, generate_insights, generate_single_fix
+from backend_FastAPI_emma.services.fix_planner import generate_fix_plan, generate_insights, generate_letter_en, generate_letter_nl, generate_single_fix
+from backend_FastAPI_emma.services.report_pdf import generate_report_html, html_to_pdf
 from backend_FastAPI_emma.services.reasoning import call_claude, call_claude_guided
 
 
@@ -37,12 +39,10 @@ router = APIRouter()
 
 DATA_FOLDER = Path(os.environ.get("DATA_FOLDER", "00 Dataroom hackathon"))
 
-# Module-level cache — holds the last report for source-line lookups.
-# IMPORTANT: this is per-worker state. Run with `uvicorn --workers 1` for the
-# demo; on multi-worker deploys the GET /readiness/{check_id}/sources endpoint
-# may 404 when it hits a different worker than the POST that produced the report.
-# Deferred: TTL'd dict keyed by a report_id returned in the POST response.
+# Module-level caches — per-worker state. Run with `uvicorn --workers 1`.
 _last_report: DataReadinessReport | None = None
+_last_insights: dict | None = None
+_last_plan: FixPlan | None = None
 
 
 def _default_period() -> tuple[date, date]:
@@ -228,6 +228,8 @@ async def create_fix_plan(
         log.exception("Fix plan generation failed: %s", exc)
         raise HTTPException(status_code=502, detail=f"Fix plan LLM call failed: {exc}") from exc
 
+    global _last_plan
+    _last_plan = plan
     return plan
 
 
@@ -300,11 +302,59 @@ async def get_insights():
         except Exception:
             pass
 
+    global _last_insights
+    _last_insights = data
+
     return InsightsResult(
         whats_working=data.get("whats_working"),
         early_warnings=warnings,
         check_correlations=correlations,
         client_letter_nl=data.get("client_letter_nl"),
+    )
+
+
+@router.post("/report/pdf")
+async def download_pdf_report(options: ReportOptions = Body(default_factory=ReportOptions)):
+    """Generate a downloadable PDF report from the cached readiness data."""
+    global _last_report, _last_insights, _last_plan
+    if _last_report is None:
+        raise HTTPException(
+            status_code=409,
+            detail="No readiness report cached — run POST /api/v1/readiness first.",
+        )
+
+    letter_text: str | None = None
+    if options.include_letter:
+        if options.language == "nl":
+            letter_text = (_last_insights or {}).get("client_letter_nl") or None
+            if not letter_text:
+                try:
+                    letter_text = await asyncio.to_thread(
+                        generate_letter_nl, _last_report, _last_insights or {}
+                    )
+                except Exception as exc:
+                    log.warning("Dutch letter generation failed (non-fatal): %s", exc)
+        else:
+            try:
+                letter_text = await asyncio.to_thread(
+                    generate_letter_en, _last_report, _last_insights or {}
+                )
+            except Exception as exc:
+                log.warning("English letter generation failed (non-fatal): %s", exc)
+
+    html = generate_report_html(
+        _last_report, _last_insights or {}, _last_plan, options, letter_text
+    )
+    try:
+        pdf_bytes = await asyncio.to_thread(html_to_pdf, html)
+    except Exception as exc:
+        log.exception("PDF generation failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {exc}") from exc
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="closing-readiness-report.pdf"'},
     )
 
 
