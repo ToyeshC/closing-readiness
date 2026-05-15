@@ -177,6 +177,39 @@ What is working: {whats_working or 'Not yet analysed'}"""
     return resp.content[0].text.strip()
 
 
+_LETTER_NL_SYSTEM = """U bent een Nederlandse financieel adviseur. Schrijf een beknopte sluitingsgereedheidsbrief in formeel Nederlands (max 250 woorden).
+Vermeld de periode, de overall score, de belangrijkste bevindingen en aanbevolen vervolgstappen.
+Begin met "In het kader van de jaarafsluiting...".
+Onderteken als "Consult&Co Financieel Advies".
+Geef alleen de brieftekst terug, geen andere tekst."""
+
+
+@langwatch.trace(name="letter_nl_call")
+def generate_letter_nl(report, insights: dict) -> str:
+    """Generate a Dutch version of the client advisory letter as fallback."""
+    whats_working = insights.get("whats_working", "")
+    blockers = [c for c in report.checks if c.status == "blocker"]
+    failing = [c for c in report.checks if c.status in ("fail", "warn")]
+
+    prompt = f"""Genereer een Nederlandse adviesbrief voor dit sluitingsgereedheidsrapport.
+
+Periode: {report.dataset.period_start} tot {report.dataset.period_end}
+Overall score: {report.overall_score:.0%}
+Advies gereed: {report.advice_ready}
+
+Blokkades ({len(blockers)}): {', '.join(c.label for c in blockers) or 'Geen'}
+Falende checks ({len(failing)}): {', '.join(c.label for c in failing) or 'Geen'}
+Wat werkt goed: {whats_working or 'Nog niet geanalyseerd'}"""
+
+    resp = _anthropic_client.messages.create(
+        model=_MODEL,
+        max_tokens=600,
+        system=_LETTER_NL_SYSTEM,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.content[0].text.strip()
+
+
 _INSIGHTS_SYSTEM = """You are a financial closing advisor for Dutch SMEs.
 You are given a data readiness report with passing and failing checks.
 

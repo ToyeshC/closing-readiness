@@ -68,7 +68,17 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col">
+    <main
+      className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col"
+      style={{
+        backgroundImage: `repeating-linear-gradient(
+          180deg,
+          transparent, transparent 31px,
+          rgba(229,223,210,0.4) 31px,
+          rgba(229,223,210,0.4) 32px
+        )`,
+      }}
+    >
       <Header current="home" authenticated={!!authenticated} divisionId={divisionId} />
 
       {result ? (

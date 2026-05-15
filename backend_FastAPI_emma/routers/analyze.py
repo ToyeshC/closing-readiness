@@ -26,7 +26,7 @@ from backend_FastAPI_emma.schemas import (
     SourceLineOut,
 )
 from backend.services.benchmarks import fetch_sector_benchmarks
-from backend_FastAPI_emma.services.fix_planner import generate_fix_plan, generate_insights, generate_letter_en, generate_single_fix
+from backend_FastAPI_emma.services.fix_planner import generate_fix_plan, generate_insights, generate_letter_en, generate_letter_nl, generate_single_fix
 from backend_FastAPI_emma.services.report_pdf import generate_report_html, html_to_pdf
 from backend_FastAPI_emma.services.reasoning import call_claude, call_claude_guided
 
@@ -326,7 +326,14 @@ async def download_pdf_report(options: ReportOptions = Body(default_factory=Repo
     letter_text: str | None = None
     if options.include_letter:
         if options.language == "nl":
-            letter_text = (_last_insights or {}).get("client_letter_nl")
+            letter_text = (_last_insights or {}).get("client_letter_nl") or None
+            if not letter_text:
+                try:
+                    letter_text = await asyncio.to_thread(
+                        generate_letter_nl, _last_report, _last_insights or {}
+                    )
+                except Exception as exc:
+                    log.warning("Dutch letter generation failed (non-fatal): %s", exc)
         else:
             try:
                 letter_text = await asyncio.to_thread(

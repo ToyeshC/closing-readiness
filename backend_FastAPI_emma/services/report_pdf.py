@@ -184,7 +184,7 @@ def generate_report_html(
     if options.include_letter and letter_text:
         letter_html = f"""
 <div class="page-break">
-<div class="section-header"><h2 class="section-title">Advisory Letter</h2></div>
+<div class="section-header"><h2 class="section-title">Advisory Summary</h2></div>
 <div class="letter-body">{letter_text}</div>
 </div>"""
 

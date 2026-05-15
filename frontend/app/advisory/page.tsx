@@ -487,23 +487,32 @@ export default function FindingsPage() {
             <div className="grid grid-cols-2 gap-2 mb-4">
               {(
                 [
-                  ["include_ratios", "Financial ratios"],
-                  ["include_checks", "Readiness checks"],
-                  ["include_insights", "AI insights"],
-                  ["include_fix_plan", "Fix plan"],
-                  ["include_letter", "Advisory letter"],
-                ] as Array<[keyof ReportOptions, string]>
-              ).map(([key, label]) => (
-                <label key={key} className="flex items-center gap-2 cursor-pointer select-none">
+                  { key: "include_ratios", label: "Financial ratios", disabled: false },
+                  { key: "include_checks", label: "Readiness checks", disabled: false },
+                  { key: "include_insights", label: "AI insights", disabled: insights === null, hint: "Analyse first" },
+                  { key: "include_fix_plan", label: "Fix plan", disabled: plan === null, hint: "Generate plan first" },
+                  { key: "include_letter", label: "Advisory summary", disabled: false },
+                ] as Array<{ key: keyof ReportOptions; label: string; disabled: boolean; hint?: string }>
+              ).map(({ key, label, disabled, hint }) => (
+                <label
+                  key={key}
+                  className={`flex items-center gap-2 select-none ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+                >
                   <input
                     type="checkbox"
-                    checked={reportOptions[key] as boolean}
+                    checked={disabled ? false : (reportOptions[key] as boolean)}
+                    disabled={disabled}
                     onChange={(e) =>
-                      setReportOptions((prev) => ({ ...prev, [key]: e.target.checked }))
+                      !disabled && setReportOptions((prev) => ({ ...prev, [key]: e.target.checked }))
                     }
-                    className="w-3.5 h-3.5 accent-[var(--color-brand-navy)] cursor-pointer"
+                    className="w-3.5 h-3.5 accent-[var(--color-brand-navy)] cursor-pointer disabled:cursor-not-allowed"
                   />
-                  <span className="text-xs text-[var(--color-brand-ink)]">{label}</span>
+                  <span className="text-xs text-[var(--color-brand-ink)]">
+                    {label}
+                    {disabled && hint && (
+                      <span className="ml-1 text-[10px] text-amber-600">({hint})</span>
+                    )}
+                  </span>
                 </label>
               ))}
             </div>
