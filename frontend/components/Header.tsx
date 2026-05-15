@@ -9,8 +9,7 @@ interface HeaderProps {
 const CRUMBS = [
   { key: "home" as const,     label: "Overview",  href: "/" },
   { key: "report" as const,   label: "Report",    href: "/report" },
-  { key: "advisory" as const, label: "Advisory",  href: "/advisory" },
-  { key: "fix-plan" as const, label: "Fix Plan",  href: "/fix-plan" },
+  { key: "advisory" as const, label: "Findings",  href: "/advisory" },
 ];
 
 export function Header({ current, authenticated, divisionId }: HeaderProps) {

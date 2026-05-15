@@ -10,17 +10,18 @@ from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
 
-from backend.models import DataReadinessReport, FixPlan, SourceLine
+from backend.models import DataReadinessReport, FixPlan, FixPlanItem, SourceLine
 from backend.services.data_loader import load_all, load_all_from_exact
 from backend.services.readiness_engine import ReadinessEngine
 from backend.services.token_store import get_access_token, get_division_id, is_authenticated
 from backend_FastAPI_emma.schemas import (
     AnalysisResult,
     DataReadinessReportOut,
+    SingleFixRequest,
     SourceLineOut,
 )
 from backend.services.benchmarks import fetch_sector_benchmarks
-from backend_FastAPI_emma.services.fix_planner import generate_fix_plan
+from backend_FastAPI_emma.services.fix_planner import generate_fix_plan, generate_single_fix
 from backend_FastAPI_emma.services.reasoning import call_claude, call_claude_guided
 
 
@@ -218,6 +219,35 @@ async def create_fix_plan(
         raise HTTPException(status_code=502, detail=f"Fix plan LLM call failed: {exc}") from exc
 
     return plan
+
+
+@router.post("/fix-plan/single", response_model=FixPlanItem)
+async def create_single_fix(body: SingleFixRequest):
+    """Generate a fix item for a single check using the cached readiness report."""
+    global _last_report
+    if _last_report is None:
+        raise HTTPException(
+            status_code=409,
+            detail="No readiness report cached — run POST /api/v1/readiness first.",
+        )
+    check = next((c for c in _last_report.checks if c.check_id == body.check_id), None)
+    if check is None:
+        raise HTTPException(status_code=404, detail=f"check_id '{body.check_id}' not found.")
+    if check.status == "pass":
+        raise HTTPException(status_code=400, detail="Check is passing — no fix needed.")
+    try:
+        item = await asyncio.to_thread(
+            generate_single_fix,
+            check,
+            _last_report.dataset.period_start,
+            _last_report.dataset.period_end,
+        )
+    except Exception as exc:
+        log.exception("Single fix plan generation failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Fix plan LLM call failed: {exc}") from exc
+    if item is None:
+        raise HTTPException(status_code=502, detail="LLM returned no fix item.")
+    return item
 
 
 @router.put("/fix-plan/{plan_id}/approve")
