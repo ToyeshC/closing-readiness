@@ -73,6 +73,10 @@ class DataReadinessReportOut(BaseModel):
     ratios: FinancialRatios | None = None
 
 
+class SingleFixRequest(BaseModel):
+    check_id: str
+
+
 class AnalysisResult(BaseModel):
     # Top-level response shape returned by POST /api/v1/readiness.
     # Uses DataReadinessReportOut (not DataReadinessReport) so the full response

@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import type { ReadinessCheck, SourceLine } from "../app/types";
+import type { ReadinessCheck, FixPlanItem } from "../app/types";
 import { StatusBadge } from "./StatusBadge";
-import { fetchSources } from "../lib/api";
+import { fetchSingleCheckFix } from "../lib/api";
 import { formatEur, formatPct } from "../lib/format";
 
 interface CheckCardProps {
@@ -19,54 +19,50 @@ const STATUS_STYLES: Record<string, { accent: string; bg: string }> = {
 };
 
 export function CheckCard({ check, delay = 0 }: CheckCardProps) {
-  const [showSources, setShowSources] = useState(false);
-  const [sources, setSources] = useState<SourceLine[] | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [fixState, setFixState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const [fixItem, setFixItem] = useState<FixPlanItem | null>(null);
 
-  async function toggleSources() {
-    if (showSources) { setShowSources(false); return; }
-    if (!sources) {
-      setLoading(true);
-      try { setSources(await fetchSources(check.check_id)); }
-      catch { setSources([]); }
-      finally { setLoading(false); }
-    }
-    setShowSources(true);
-  }
-
-  const hasSources = check.status !== "pass";
+  const hasSources = check.source_lines.length > 0;
   const styles = STATUS_STYLES[check.status] ?? STATUS_STYLES.pass;
+
+  async function handleFix(e: React.MouseEvent) {
+    e.stopPropagation();
+    setFixState("loading");
+    try {
+      const item = await fetchSingleCheckFix(check.check_id);
+      setFixItem(item);
+      setFixState("loaded");
+    } catch {
+      setFixState("error");
+    }
+  }
 
   return (
     <div
       className={`border border-[var(--color-brand-line)] border-l-4 rounded-lg overflow-hidden motion-safe:animate-fade-in-up ${styles.accent}`}
       style={{ animationDelay: `${delay}ms` }}
     >
-      <div className={`px-4 py-3.5 ${styles.bg}`}>
-        <div className="flex items-start justify-between gap-3">
+      {/* Main row */}
+      <div
+        className={`px-4 py-3.5 ${styles.bg} ${hasSources ? "cursor-pointer" : ""}`}
+        onClick={hasSources ? () => setOpen((v) => !v) : undefined}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <StatusBadge status={check.status} />
+
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <StatusBadge status={check.status} />
-              <span className="text-sm font-medium text-[var(--color-brand-ink)]">
-                {check.label}
-              </span>
-              <span className="text-[10px] font-mono text-[var(--color-brand-muted)] opacity-70">
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <span className="text-sm font-medium text-[var(--color-brand-ink)]">{check.label}</span>
+              <span className="text-[10px] font-mono text-[var(--color-brand-muted)] opacity-60 hidden sm:inline">
                 {check.check_id}
               </span>
             </div>
-            <p className="text-sm text-[var(--color-brand-muted)]">{check.description}</p>
-            {check.affected_amount !== null && check.affected_amount !== undefined && (
-              <p className="text-sm font-semibold text-[var(--color-brand-ink)] tabular-nums mt-1">
-                {formatEur(check.affected_amount)}
-              </p>
+            {(open || fixState === "loaded") && (
+              <p className="text-xs text-[var(--color-brand-muted)] mt-1">{check.description}</p>
             )}
-            {check.status === "blocker" && (
-              <p className="mt-1 text-xs text-[var(--color-status-blocker)] font-medium">
-                Fix this to unlock advisory
-              </p>
-            )}
-            {check.status !== "blocker" && check.status !== "pass" && check.score_after_fix !== null && (
-              <p className="mt-1 text-xs text-[var(--color-brand-muted)]">
+            {(open || fixState === "loaded") && check.status !== "blocker" && check.status !== "pass" && check.score_after_fix !== null && (
+              <p className="text-xs text-[var(--color-brand-muted)] mt-0.5">
                 Fix this → score{" "}
                 <span className="font-semibold text-[var(--color-brand-navy)]">
                   {formatPct(check.score_after_fix)}
@@ -74,18 +70,62 @@ export function CheckCard({ check, delay = 0 }: CheckCardProps) {
               </p>
             )}
           </div>
+
+          {check.affected_amount !== null && check.affected_amount !== undefined && (
+            <span className="text-sm font-semibold tabular-nums text-[var(--color-brand-ink)] hidden sm:block shrink-0">
+              {formatEur(check.affected_amount)}
+            </span>
+          )}
+
+          {check.status !== "pass" && (
+            <div className="flex items-center shrink-0" onClick={(e) => e.stopPropagation()}>
+              {fixState === "idle" && (
+                <button
+                  onClick={handleFix}
+                  className="text-xs text-[var(--color-brand-navy)] hover:underline cursor-pointer px-2 py-1"
+                >
+                  Fix this →
+                </button>
+              )}
+              {fixState === "loading" && (
+                <div className="w-3.5 h-3.5 border-2 border-[var(--color-brand-navy)] border-t-transparent rounded-full animate-spin mx-2" />
+              )}
+              {fixState === "error" && (
+                <button
+                  onClick={handleFix}
+                  className="text-xs text-[var(--color-status-blocker)] hover:underline cursor-pointer px-2 py-1"
+                >
+                  Retry →
+                </button>
+              )}
+            </div>
+          )}
+
           {hasSources && (
-            <button
-              onClick={toggleSources}
-              className="shrink-0 text-xs text-[var(--color-brand-navy)] hover:underline whitespace-nowrap mt-0.5"
-            >
-              {loading ? "Loading…" : showSources ? "Hide ↑" : "Source ↓"}
-            </button>
+            <span className="text-[10px] text-[var(--color-brand-muted)] shrink-0 select-none">
+              {open ? "▲" : `▼ ${check.source_lines.length}`}
+            </span>
           )}
         </div>
       </div>
 
-      {showSources && sources && sources.length > 0 && (
+      {/* Inline fix result */}
+      {fixState === "loaded" && fixItem && (
+        <div className="border-t border-[var(--color-brand-line)] bg-[var(--color-brand-surface)] px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-brand-muted)] mb-1.5">
+            AI-proposed action
+          </p>
+          <p className="text-sm font-mono text-[var(--color-brand-ink)] leading-relaxed">{fixItem.proposed_action}</p>
+          <div className="flex flex-wrap items-center gap-3 mt-2 text-[10px] text-[var(--color-brand-muted)]">
+            <span>⏱ {fixItem.estimated_effort}</span>
+            <span>· {fixItem.confidence} confidence</span>
+            <span>· {fixItem.risk_level} risk</span>
+          </div>
+        </div>
+      )}
+
+      {/* Source lines */}
+      {open && check.source_lines.length > 0 && (
         <div className="overflow-x-auto border-t border-[var(--color-brand-line)] bg-[var(--color-brand-surface)]">
           <table className="w-full text-xs text-[var(--color-brand-ink)]">
             <thead>
@@ -97,7 +137,7 @@ export function CheckCard({ check, delay = 0 }: CheckCardProps) {
               </tr>
             </thead>
             <tbody>
-              {sources.map((s, i) => (
+              {check.source_lines.map((s, i) => (
                 <tr key={i} className="border-t border-[var(--color-brand-line)] even:bg-[var(--color-brand-cream)]/40">
                   <td className="px-4 py-2 whitespace-nowrap">{s.date}</td>
                   <td className="px-4 py-2 font-mono">{s.account_code}</td>

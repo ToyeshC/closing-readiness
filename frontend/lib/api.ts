@@ -1,6 +1,6 @@
 // Centralized API surface. Replaces inline fetch + API_URL constants across pages.
 
-import type { AnalysisResult, FixPlan, SourceLine } from "../app/types";
+import type { AnalysisResult, FixPlan, FixPlanItem, SourceLine } from "../app/types";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -45,6 +45,19 @@ export async function fetchFixPlan(): Promise<FixPlan> {
   if (!r.ok) {
     const text = await r.text().catch(() => "");
     throw new Error(`Fix plan failed (${r.status})${text ? `: ${text.slice(0, 200)}` : ""}`);
+  }
+  return r.json();
+}
+
+export async function fetchSingleCheckFix(checkId: string): Promise<FixPlanItem> {
+  const r = await fetch(`${API_URL}/api/v1/fix-plan/single`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ check_id: checkId }),
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    throw new Error(`Single fix failed (${r.status})${text ? `: ${text.slice(0, 200)}` : ""}`);
   }
   return r.json();
 }

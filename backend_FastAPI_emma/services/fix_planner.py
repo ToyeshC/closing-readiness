@@ -5,7 +5,7 @@ import os
 import anthropic
 import langwatch
 
-from backend.models import DataReadinessReport, FixPlan, FixPlanItem
+from backend.models import DataReadinessReport, FixPlan, FixPlanItem, ReadinessCheck
 
 log = logging.getLogger(__name__)
 
@@ -92,3 +92,46 @@ Prioritise blockers first, then high severity, then medium."""
         period_end=report.dataset.period_end,
         items=items,
     )
+
+
+@langwatch.trace(name="single_fix_call")
+def generate_single_fix(check: ReadinessCheck, period_start, period_end) -> FixPlanItem | None:
+    """Generate a fix plan item for a single failing check."""
+    issue = [
+        {
+            "check_id": check.check_id,
+            "label": check.label,
+            "status": check.status,
+            "description": check.description,
+            "amount": check.affected_amount,
+        }
+    ]
+
+    prompt = f"""Generate a fix plan for this single data quality issue:
+
+{json.dumps(issue, indent=2)}
+
+Period: {period_start} to {period_end}"""
+
+    resp = _anthropic_client.messages.create(
+        model=_MODEL,
+        max_tokens=512,
+        system=_FIX_PLAN_SYSTEM,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    raw = resp.content[0].text.strip()
+
+    if raw.startswith("```"):
+        try:
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+        except IndexError:
+            pass
+
+    try:
+        data = json.loads(raw)
+        items = data.get("items", [])
+        if items:
+            return FixPlanItem(**items[0])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+        log.error("Single fix parse failed: %s | raw[:500]=%r", e, raw[:500])
+    return None

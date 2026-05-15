@@ -190,7 +190,7 @@ function PreRun({
         <button
           onClick={runCheck}
           disabled={loading}
-          className="w-full bg-white text-[var(--color-brand-navy)] py-3.5 rounded-xl font-semibold text-sm hover:bg-[var(--color-brand-cream)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="w-full bg-white text-[var(--color-brand-navy)] py-3.5 rounded-xl font-semibold text-sm hover:bg-[var(--color-brand-cream)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? "Running checks…" : "Run readiness check"}
         </button>
@@ -288,17 +288,17 @@ function ExecutiveSummary({
               href="/advisory"
               className="px-4 py-2 rounded-lg border border-[var(--color-brand-line)] text-[var(--color-brand-navy)] text-sm font-medium hover:bg-[var(--color-brand-cream-deep)] transition-colors"
             >
-              {readiness.advice_ready ? "Advisory" : "Guided diagnosis"}
+              {readiness.advice_ready ? "Findings" : "Findings"}
             </Link>
             <button
               onClick={onRerun}
-              className="px-4 py-2 rounded-lg text-sm font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-navy)] transition-colors"
+              className="px-4 py-2 rounded-lg text-sm font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-navy)] cursor-pointer transition-colors"
             >
               {showRerun ? "Cancel" : "Re-run"}
             </button>
             <button
               onClick={onStartOver}
-              className="px-4 py-2 rounded-lg text-sm font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-rose-deep)] transition-colors"
+              className="px-4 py-2 rounded-lg text-sm font-medium text-[var(--color-brand-muted)] hover:text-[var(--color-brand-rose-deep)] cursor-pointer transition-colors"
             >
               Clear
             </button>
@@ -312,12 +312,15 @@ function ExecutiveSummary({
           <h2 className="text-[10px] uppercase tracking-widest text-[var(--color-brand-muted)] mb-3 font-semibold">
             Financial ratios
           </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <KpiTile label="DSO" value={ratios.dso_days.value !== null ? formatDays(ratios.dso_days.value) : "—"} caveat={!ratios.dso_days.reliable ? ratios.dso_days.note : null} delay={0} />
             <KpiTile label="DPO" value={ratios.dpo_days.value !== null ? formatDays(ratios.dpo_days.value) : "—"} caveat={!ratios.dpo_days.reliable ? ratios.dpo_days.note : null} delay={60} />
-            <KpiTile label="Working capital" value={formatCompactEur(ratios.working_capital.value)} caveat={!ratios.working_capital.reliable ? ratios.working_capital.note : null} delay={120} />
-            <KpiTile label="Revenue" value={formatCompactEur(ratios.revenue_period.value)} caveat={!ratios.revenue_period.reliable ? ratios.revenue_period.note : null} delay={180} />
+            <KpiTile label="Revenue" value={formatCompactEur(ratios.revenue_period.value)} caveat={!ratios.revenue_period.reliable ? ratios.revenue_period.note : null} delay={120} />
+            <KpiTile label="Purchases" value={formatCompactEur(ratios.purchases_period.value)} caveat={!ratios.purchases_period.reliable ? ratios.purchases_period.note : null} delay={180} />
             <KpiTile label="Gross margin" value={ratios.gross_profit_margin.value !== null ? formatPct(ratios.gross_profit_margin.value, 1) : "—"} caveat={!ratios.gross_profit_margin.reliable ? ratios.gross_profit_margin.note : null} delay={240} />
+            <KpiTile label="Open AR" value={formatCompactEur(ratios.open_ar.value)} caveat={!ratios.open_ar.reliable ? ratios.open_ar.note : null} delay={300} />
+            <KpiTile label="Open AP" value={formatCompactEur(ratios.open_ap.value)} caveat={!ratios.open_ap.reliable ? ratios.open_ap.note : null} delay={360} />
+            <KpiTile label="Working cap." value={formatCompactEur(ratios.working_capital.value)} caveat={!ratios.working_capital.reliable ? ratios.working_capital.note : null} delay={420} />
           </div>
         </section>
       )}
@@ -371,7 +374,7 @@ function ExecutiveSummary({
             <button
               onClick={runCheck}
               disabled={loading}
-              className="px-5 py-2.5 rounded-lg bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-semibold hover:bg-[var(--color-brand-navy-soft)] disabled:opacity-50 transition-colors"
+              className="px-5 py-2.5 rounded-lg bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-semibold hover:bg-[var(--color-brand-navy-soft)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {loading ? "Running…" : "Run"}
             </button>
