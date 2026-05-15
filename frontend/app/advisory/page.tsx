@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { AnalysisResult, CheckCorrelation, EarlyWarning, FixPlan, InsightsResult, ReadinessCheck, ReportOptions } from "../types";
 import { Header } from "../../components/Header";
 import { PlanItemCard } from "../../components/PlanItemCard";
-import { fetchFixPlan, approveFixPlan, fetchInsights, downloadPdfReport } from "../../lib/api";
+import { fetchAuthStatus, fetchFixPlan, approveFixPlan, fetchInsights, downloadPdfReport } from "../../lib/api";
 import { formatEur } from "../../lib/format";
 
 function typeStyle(type: "FACT" | "ASSUMPTION" | "ADVICE") {
@@ -53,7 +53,6 @@ function BlockerRow({ check }: { check: ReadinessCheck }) {
 
   return (
     <div className="flex items-center gap-3 py-2.5 border-t border-[var(--color-brand-line)] first:border-0">
-      {/* Fixed width so BLOCKER and FAIL badges align labels */}
       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border shrink-0 min-w-[52px] text-center ${badgeColor}`}>
         {check.status.toUpperCase()}
       </span>
@@ -65,17 +64,7 @@ function BlockerRow({ check }: { check: ReadinessCheck }) {
   );
 }
 
-function InsightsPanel({
-  insights,
-  letterCopied,
-  onCopyLetter,
-}: {
-  insights: InsightsResult;
-  letterCopied: boolean;
-  onCopyLetter: (text: string) => void;
-}) {
-  const [letterOpen, setLetterOpen] = useState(false);
-
+function InsightsPanel({ insights }: { insights: InsightsResult }) {
   return (
     <div className="space-y-3">
       {/* What's working */}
@@ -128,34 +117,6 @@ function InsightsPanel({
           </div>
         </div>
       )}
-
-      {/* Client letter draft */}
-      {insights.client_letter_nl && (
-        <div className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] rounded-xl overflow-hidden motion-safe:animate-fade-in-up">
-          <button
-            onClick={() => setLetterOpen((v) => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 text-left cursor-pointer hover:bg-[var(--color-brand-cream)] transition-colors"
-          >
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-brand-navy)]">
-              Client letter draft (Nederlands)
-            </span>
-            <span className="text-xs text-[var(--color-brand-muted)]">{letterOpen ? "▲" : "▼"}</span>
-          </button>
-          {letterOpen && (
-            <div className="border-t border-[var(--color-brand-line)] px-4 py-4">
-              <p className="text-sm text-[var(--color-brand-ink)] leading-relaxed whitespace-pre-wrap mb-3">
-                {insights.client_letter_nl}
-              </p>
-              <button
-                onClick={() => onCopyLetter(insights.client_letter_nl!)}
-                className="inline-flex items-center gap-1.5 text-xs text-[var(--color-brand-navy)] hover:underline cursor-pointer font-medium"
-              >
-                {letterCopied ? "✓ Copied" : "Copy to clipboard"}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -163,6 +124,8 @@ function InsightsPanel({
 export default function FindingsPage() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [divisionId, setDivisionId] = useState<number | null>(null);
   const [planState, setPlanState] = useState<"idle" | "loading" | "loaded">("idle");
   const [plan, setPlan] = useState<FixPlan | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -172,7 +135,6 @@ export default function FindingsPage() {
   const [approveError, setApproveError] = useState<string | null>(null);
   const [insights, setInsights] = useState<InsightsResult | null>(null);
   const [insightsState, setInsightsState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
-  const [letterCopied, setLetterCopied] = useState(false);
   const [reportOptions, setReportOptions] = useState<ReportOptions>({
     include_ratios: true,
     include_checks: true,
@@ -189,9 +151,25 @@ export default function FindingsPage() {
     try {
       const raw = localStorage.getItem("analysis_result");
       if (raw) setResult(JSON.parse(raw));
+      const rawInsights = localStorage.getItem("insights_result");
+      if (rawInsights) {
+        setInsights(JSON.parse(rawInsights));
+        setInsightsState("loaded");
+      }
+      const rawPlan = localStorage.getItem("fix_plan");
+      if (rawPlan) {
+        setPlan(JSON.parse(rawPlan));
+        setPlanState("loaded");
+      }
     } catch {
       // ignore
     }
+  }, []);
+
+  useEffect(() => {
+    fetchAuthStatus()
+      .then((d) => { setAuthenticated(d.authenticated); setDivisionId(d.division_id); })
+      .catch(() => {});
   }, []);
 
   function toggleItem(checkId: string) {
@@ -209,6 +187,7 @@ export default function FindingsPage() {
       const p = await fetchFixPlan();
       setPlan(p);
       setPlanState("loaded");
+      localStorage.setItem("fix_plan", JSON.stringify(p));
     } catch {
       setPlanState("idle");
     }
@@ -220,18 +199,9 @@ export default function FindingsPage() {
       const data = await fetchInsights();
       setInsights(data);
       setInsightsState("loaded");
+      localStorage.setItem("insights_result", JSON.stringify(data));
     } catch {
       setInsightsState("error");
-    }
-  }
-
-  async function handleCopyLetter(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setLetterCopied(true);
-      setTimeout(() => setLetterCopied(false), 2000);
-    } catch {
-      // ignore clipboard errors
     }
   }
 
@@ -283,40 +253,43 @@ export default function FindingsPage() {
     (c) => c.status === "blocker" || c.status === "fail",
   );
 
-  if (approved !== null) {
-    return (
-      <main className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col">
-        <Header current="advisory" />
-        <div className="flex-1 flex items-center justify-center px-6">
-          <div className="text-center max-w-sm">
-            <div className="w-12 h-12 bg-[var(--color-brand-navy)]/10 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-2xl">✓</span>
-            </div>
-            <p className="text-base font-semibold text-[var(--color-brand-navy)] mb-2">
-              {approved} {approved === 1 ? "action" : "actions"} approved
-            </p>
-            <p className="text-sm text-[var(--color-brand-muted)] mb-4">
-              Approval logged to LangWatch. Execute the approved steps in Exact Online.
-            </p>
-            <Link href="/report" className="text-sm text-[var(--color-brand-navy)] hover:text-[var(--color-brand-rose-deep)] underline">
-              ← Back to report
-            </Link>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
   return (
-    <main className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col">
-      <Header current="advisory" />
+    <main
+      className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col"
+      style={{
+        backgroundImage: `repeating-linear-gradient(
+          180deg,
+          transparent, transparent 31px,
+          rgba(229,223,210,0.4) 31px,
+          rgba(229,223,210,0.4) 32px
+        )`,
+      }}
+    >
+      <Header current="advisory" authenticated={authenticated} divisionId={divisionId} />
+
+      {/* Context strip */}
+      <div className="bg-[var(--color-brand-surface)] border-b border-[var(--color-brand-line)]">
+        <div className="max-w-3xl mx-auto px-6 sm:px-8 py-2.5 flex items-center gap-3 text-xs flex-wrap">
+          <span className="font-semibold text-[var(--color-brand-navy)]">
+            {Math.round(readiness.overall_score * 100)}% Readiness
+          </span>
+          <span className="text-[var(--color-brand-line)]">·</span>
+          <span className={readiness.advice_ready ? "text-[var(--color-status-pass)] font-medium" : "text-amber-700 font-medium"}>
+            {readiness.advice_ready ? "Advisory ready" : "Guided diagnosis mode"}
+          </span>
+          <span className="text-[var(--color-brand-line)]">·</span>
+          <span className="text-[var(--color-brand-muted)]">
+            {readiness.checks.filter((c) => c.status === "blocker").length} blockers · {readiness.checks.filter((c) => c.status === "pass").length} passing
+          </span>
+        </div>
+      </div>
 
       <div className="max-w-3xl mx-auto w-full px-6 sm:px-8 py-10 flex-1">
         {!bannerDismissed && (
           <AiDisclosureBanner onDismiss={() => setBannerDismissed(true)} />
         )}
 
-        {/* ── Insights section (always shown when result is present) ─────── */}
+        {/* ── Insights section ─────────────────────────────────────────────── */}
         <div className="mb-6">
           {insightsState === "idle" && (
             <button
@@ -341,11 +314,7 @@ export default function FindingsPage() {
             </button>
           )}
           {insightsState === "loaded" && insights && (
-            <InsightsPanel
-              insights={insights}
-              letterCopied={letterCopied}
-              onCopyLetter={handleCopyLetter}
-            />
+            <InsightsPanel insights={insights} />
           )}
         </div>
 
@@ -398,8 +367,7 @@ export default function FindingsPage() {
               </p>
               <p className="text-xs text-amber-700">
                 Data quality issues affect advisory accuracy. Fix recommendations are available below.
-                The guided analysis above is available — the advisor takes professional responsibility
-                for any output generated with unresolved issues.
+                The advisor takes professional responsibility for any output generated with unresolved issues.
               </p>
             </div>
 
@@ -440,7 +408,7 @@ export default function FindingsPage() {
 
             {planState === "loaded" && plan && plan.items.length > 0 && (
               <>
-                {/* EU AI Act Art. 13 disclosure — not dismissible on fix plan */}
+                {/* EU AI Act Art. 13 disclosure */}
                 <div className="flex items-start gap-3 px-4 py-3 bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] border-l-4 border-l-[var(--color-brand-navy)]/30 rounded-lg text-xs text-[var(--color-brand-muted)] mb-6">
                   <p>
                     <span className="font-semibold text-[var(--color-brand-ink)]">AI-generated fix plan.</span>{" "}
@@ -481,20 +449,29 @@ export default function FindingsPage() {
                   {approveError && (
                     <p className="text-sm text-[var(--color-status-blocker)] mb-3">{approveError}</p>
                   )}
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs text-[var(--color-brand-muted)]">
-                      {selected.size === 0
-                        ? "Select actions to approve above"
-                        : `${selected.size} of ${plan.items.length} selected`}
-                    </p>
-                    <button
-                      onClick={handleApprove}
-                      disabled={selected.size === 0 || approving}
-                      className="px-5 py-2 rounded-lg bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-medium hover:bg-[var(--color-brand-navy-soft)] cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      {approving ? "Logging…" : `Approve ${selected.size > 0 ? selected.size : ""} selected`}
-                    </button>
-                  </div>
+                  {approved !== null ? (
+                    <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-[var(--color-status-pass-bg)] border border-[var(--color-status-pass)]/20 text-sm text-[var(--color-status-pass)] font-medium motion-safe:animate-fade-in-up">
+                      <span>✓</span>
+                      <span>
+                        {approved} {approved === 1 ? "action" : "actions"} approved — logged to LangWatch for audit trail
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-[var(--color-brand-muted)]">
+                        {selected.size === 0
+                          ? "Select actions to approve above"
+                          : `${selected.size} of ${plan.items.length} selected`}
+                      </p>
+                      <button
+                        onClick={handleApprove}
+                        disabled={selected.size === 0 || approving}
+                        className="px-5 py-2 rounded-lg bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-medium hover:bg-[var(--color-brand-navy-soft)] cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {approving ? "Logging…" : `Approve ${selected.size > 0 ? selected.size : ""} selected`}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </>
             )}

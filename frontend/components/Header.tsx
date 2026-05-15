@@ -14,14 +14,13 @@ const CRUMBS = [
 
 export function Header({ current, authenticated, divisionId }: HeaderProps) {
   return (
-    <header className="bg-[var(--color-brand-surface)] border-b border-[var(--color-brand-line)]">
+    <header className="sticky top-0 z-50 bg-[var(--color-brand-surface)] border-b border-[var(--color-brand-line)]">
       <div className="max-w-5xl mx-auto px-6 sm:px-8 py-4 flex items-center justify-between gap-6">
 
-        {/* Wordmark */}
+        {/* Logo */}
         <Link href="/" className="flex items-center gap-3 shrink-0 group">
-          <span className="font-[family-name:var(--font-display)] text-xl font-semibold text-[var(--color-brand-navy)] tracking-tight">
-            Consult<span className="text-[var(--color-brand-rose-deep)]">&amp;</span>Co
-          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/consult-co-logo.svg" alt="Consult&amp;Co" className="h-6 w-auto" />
           <span className="hidden sm:block text-xs text-[var(--color-brand-muted)] border-l border-[var(--color-brand-line)] pl-3">
             Financial Closing Readiness
           </span>

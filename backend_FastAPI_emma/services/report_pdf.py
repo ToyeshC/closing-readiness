@@ -182,10 +182,9 @@ def generate_report_html(
     # ── Letter section ────────────────────────────────────────────────────────
     letter_html = ""
     if options.include_letter and letter_text:
-        lang_label = "Dutch (Nederlands)" if options.language == "nl" else "English"
         letter_html = f"""
 <div class="page-break">
-<div class="section-header"><h2 class="section-title">Client Advisory Letter ({lang_label})</h2></div>
+<div class="section-header"><h2 class="section-title">Advisory Letter</h2></div>
 <div class="letter-body">{letter_text}</div>
 </div>"""
 
