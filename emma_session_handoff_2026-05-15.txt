@@ -1,0 +1,135 @@
+TOYESH → EMMA HANDOFF — 2026-05-15 (Demo Day)
+==============================================
+
+HEADLINE: Full Day 5 feature pass complete. Insights engine live, fix-plan parsing fixed,
+UI polish done. Everything merged to main. Backend needs restart before demo.
+
+
+WHAT TOYESH BUILT TODAY
+-----------------------
+
+1. INSIGHTS ENGINE — POST /api/v1/insights (backend_FastAPI_emma/routers/analyze.py)
+   - New endpoint that reads the cached _last_report and calls Claude for proactive intelligence
+   - Four outputs per call: "what's working" summary, early warnings on passing checks,
+     cross-check correlations (linked root causes), Dutch client letter paragraph
+   - InsightsResult schema in schemas.py; EarlyWarning + CheckCorrelation sub-models
+   - Returns structured JSON even on partial Claude failures (per-item try/except)
+   - InsightsPanel component in frontend/app/advisory/page.tsx:
+     * Green card: what's working + early warning list (signal + recommendation per check)
+     * Amber card: correlated checks (grouped root causes)
+     * Collapsible "Client Letter Draft" (Dutch paragraph + copy-to-clipboard button)
+   - "Generate Insights" button triggers on Findings page; loading spinner while waiting
+
+2. FIX PLAN PARSING — completely rewritten (backend_FastAPI_emma/services/fix_planner.py)
+   - Root cause: Claude often prepends prose ("Here is the plan:") before the JSON block.
+     The old startswith("```") check missed this → json.loads failed → empty items list.
+   - _extract_json() helper: tries fenced code blocks first, falls back to bare JSON object
+     anywhere in the response using re.search(r"\{.*\}", text, re.DOTALL)
+   - Per-item resilient parsing: one bad schema item no longer wipes the whole list
+   - Same fix applied to generate_single_fix (the "Fix this →" per-card button)
+   - "Generate Remediation Plan" button now correctly returns 10 action items
+
+3. LangWatch AUDIT TRAIL — visible in report UI (frontend/app/report/page.tsx)
+   - Backend generates uuid4()[:8].upper() trace_id per readiness run, stores in AnalysisResult
+   - Report hero shows: "AI ANALYSIS · REF {trace_id} · claude-sonnet-4-6"
+   - Gives non-technical demo audience a tangible audit reference number
+
+4. AUTH REDIRECT CLEARS STALE DATA (backend/routers/auth_exact.py + frontend/app/page.tsx)
+   - Callback now redirects to /?fresh=1 instead of bare /
+   - Frontend detects ?fresh=1, clears localStorage analysis_result, replaces URL
+   - Prevents re-auth loop from showing stale previous analysis
+
+5. API KEY LOAD FIX (backend_FastAPI_emma/main.py)
+   - load_dotenv() was path-relative (failed when uvicorn started from project root)
+   - Changed to explicit Path(__file__).parent.parent / ".env" — works regardless of CWD
+   - This was the root cause of "Fix this →" returning errors until restart
+
+6. UI POLISH PASS
+   - Nav: all links always font-semibold; color-only distinction for active (no layout shift)
+   - CheckCard: amount / "Fix this" / source-count columns always rendered at fixed widths
+     (w-28 / w-20 / w-8) — rows now stay aligned across all check statuses
+   - KPI tiles: switched from 1 row of 8 (too narrow) to 2 rows of 4 (sm:grid-cols-4)
+     Removed overflow-hidden/truncate from value+label; restored text-2xl; line-clamp-3 on caveat
+   - Auth badge container: min-w-[80px] so nav doesn't shift when badge appears/disappears
+   - Fix plan 0-items guard: shows error message instead of empty approval panel
+
+7. MERGE TO MAIN COMPLETE
+   - Rebased local main onto origin/main (resolved one conflict in page.tsx — kept Emma's
+     fetchAuthStatus() re-probe after run, which is the correct behaviour)
+   - Pushed: e0eb988 is live on origin/main
+   - toyesh branch stays as working branch
+
+
+YOUR CODE IS CORRECT
+---------------------
+All Emma's code from the May 14 handoff is intact:
+- OpenRouter → replaced by direct Anthropic SDK (Toyesh did this in earlier session, pre-today)
+- LangWatch traces are working: @langwatch.trace wraps generate_insights, generate_fix_plan,
+  and generate_single_fix — visible in LangWatch dashboard
+- Auth router wired in main.py ✅
+- Guided-diagnosis path still fires when advice_ready=False ✅
+- frontend/app/page.tsx: ?fresh=1 detection added without breaking Emma's "Start over" button
+
+
+CRITICAL — BEFORE THE DEMO
+---------------------------
+1. RESTART UVICORN — the load_dotenv fix only takes effect on restart. If the backend
+   is still running from before this session, ANTHROPIC_API_KEY won't load correctly
+   and Claude calls (fix plan, insights) will fail with auth errors.
+
+   Kill and restart:
+     uvicorn backend_FastAPI_emma.main:app --host 127.0.0.1 --port 8000 --reload --workers 1
+
+   !! --workers 1 is REQUIRED — the /readiness/{check_id}/sources endpoint reads a
+   module-level cache (_last_report) that is only populated by the POST /readiness handler.
+   Multiple workers won't share this cache.
+
+2. PULL MAIN before running anything:
+     git checkout main && git pull origin main && git checkout toyesh
+
+3. Run the readiness check FIRST before clicking "Generate Insights" or "Generate
+   Remediation Plan" — both endpoints depend on the _last_report cache which is only
+   set by POST /api/v1/readiness.
+
+4. For OAuth: ngrok must use 127.0.0.1 (not localhost) to avoid macOS IPv6 resolution:
+     ngrok http --domain=unwired-sweep-apostle.ngrok-free.dev 127.0.0.1:8000
+
+
+API CONTRACTS — WHAT CHANGED TODAY
+------------------------------------
+New endpoint:
+  POST /api/v1/insights
+  → Response: InsightsResult {
+      whats_working: string | null,
+      early_warnings: [{check_id, check_label, signal, recommendation}],
+      check_correlations: [{check_ids: string[], explanation}],
+      client_letter_nl: string | null
+    }
+  → Requires: POST /api/v1/readiness must have been called first (uses _last_report cache)
+  → Returns 409 if no cached report
+
+AnalysisResult now includes:
+  trace_id: string | null   (8-char uppercase UUID, shown in report hero)
+
+
+GIT STATE
+----------
+main: e0eb988 (pushed and live on origin)
+toyesh: 021cefc (up to date with origin/toyesh, ahead of main by those 5 commits)
+Working tree: clean (only .DS_Store modified, not committed)
+
+
+DEMO FLOW (confirmed working)
+------------------------------
+1. Open http://localhost:3000
+2. Click "Run readiness check" (uses local data files if no OAuth token)
+3. → Redirects to /report (score ~40%, suspense blocker active, 8 KPI tiles in 2 rows)
+4. → KPI tiles show DSO / DPO / Working Capital / Revenue / Gross margin (2 rows, no truncation)
+5. → Report hero shows: "AI ANALYSIS · REF XXXXXXXX · claude-sonnet-4-6"
+6. Click "Findings" in nav → advisory page
+7. Click "Generate Insights" → InsightsPanel loads:
+   - Green card: "What's Working" summary + early warnings on passing checks
+   - Amber card: correlated checks with shared root cause explanation
+   - Collapsible: Dutch client letter paragraph + "Copy" button
+8. Click "Generate Remediation Plan" → plan with 10 action items (not 0)
+9. Click "Fix this →" on any non-pass check → inline AI action proposal
