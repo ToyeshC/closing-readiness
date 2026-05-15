@@ -86,3 +86,4 @@ class AnalysisResult(BaseModel):
     blocked_reason: str | None
     guided_response: str | None = None             # populated when advice_ready=False
     sector_benchmarks: SectorBenchmarks | None = None  # CBS StatLine sector context
+    trace_id: str | None = None                    # unique analysis reference (EU AI Act Art. 13 audit trail)

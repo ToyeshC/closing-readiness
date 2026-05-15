@@ -34,9 +34,9 @@ export function Header({ current, authenticated, divisionId }: HeaderProps) {
               <Link
                 key={c.key}
                 href={c.href}
-                className={`text-sm pb-0.5 transition-colors ${
+                className={`text-sm font-semibold pb-0.5 transition-colors ${
                   current === c.key
-                    ? "text-[var(--color-brand-navy)] font-semibold border-b-2 border-[var(--color-brand-navy)]"
+                    ? "text-[var(--color-brand-navy)] border-b-2 border-[var(--color-brand-navy)]"
                     : "text-[var(--color-brand-muted)] hover:text-[var(--color-brand-navy)]"
                 }`}
               >
@@ -45,13 +45,16 @@ export function Header({ current, authenticated, divisionId }: HeaderProps) {
             ))}
           </nav>
 
-          {authenticated && divisionId && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--color-status-pass-bg)] text-[var(--color-status-pass)] text-xs font-medium border border-[var(--color-status-pass)]/20">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-status-pass)]" />
-              <span className="hidden sm:inline">Connected</span>
-              <span className="opacity-70">· {divisionId}</span>
-            </span>
-          )}
+          {/* Fixed-width container so nav doesn't shift when badge appears/disappears */}
+          <div className="min-w-[80px] flex justify-end">
+            {authenticated && divisionId && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--color-status-pass-bg)] text-[var(--color-status-pass)] text-xs font-medium border border-[var(--color-status-pass)]/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-status-pass)]" />
+                <span className="hidden sm:inline">Connected</span>
+                <span className="opacity-70">· {divisionId}</span>
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </header>

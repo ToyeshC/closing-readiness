@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import uuid
 from datetime import date
 from pathlib import Path
 
@@ -137,6 +138,10 @@ async def run_readiness(
         log.warning("Sector benchmarks fetch failed (non-fatal): %s", exc)
         benchmarks = None
 
+    # Unique reference for this analysis run — stored in AnalysisResult so the
+    # frontend can display it as an EU AI Act Art. 13 audit trail reference.
+    analysis_ref = str(uuid.uuid4())[:8].upper()
+
     if not report.advice_ready:
         # Data has blockers/failures — call guided-diagnosis mode instead of advisory Claude.
         # Returns structured fix instructions per failing check rather than a hard block.
@@ -154,6 +159,7 @@ async def run_readiness(
             blocked_reason=reason,
             guided_response=guidance,
             sector_benchmarks=benchmarks,
+            trace_id=analysis_ref,
         )
 
     try:
@@ -166,6 +172,7 @@ async def run_readiness(
         advisory_outputs=advisory_outputs,
         blocked_reason=None,
         sector_benchmarks=benchmarks,
+        trace_id=analysis_ref,
     )
 
 

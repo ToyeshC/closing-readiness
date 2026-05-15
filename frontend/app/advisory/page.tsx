@@ -36,7 +36,7 @@ function AiDisclosureBanner({ onDismiss }: { onDismiss: () => void }) {
       </p>
       <button
         onClick={onDismiss}
-        className="shrink-0 text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)] leading-none text-sm cursor-pointer"
+        className="self-start shrink-0 text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)] leading-none text-sm cursor-pointer"
         aria-label="Dismiss"
       >
         ✕
@@ -46,17 +46,21 @@ function AiDisclosureBanner({ onDismiss }: { onDismiss: () => void }) {
 }
 
 function BlockerRow({ check }: { check: ReadinessCheck }) {
+  const badgeColor =
+    check.status === "blocker"
+      ? "bg-[var(--color-status-blocker-bg)] text-[var(--color-status-blocker)] border-[var(--color-status-blocker)]/30"
+      : "bg-[var(--color-status-fail-bg)] text-[var(--color-status-fail)] border-[var(--color-status-fail)]/30";
+
   return (
     <div className="flex items-center gap-3 py-2.5 border-t border-[var(--color-brand-line)] first:border-0">
-      <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--color-status-blocker-bg)] text-[var(--color-status-blocker)] border border-[var(--color-status-blocker)]/30 shrink-0">
+      {/* Fixed width so BLOCKER and FAIL badges align labels */}
+      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border shrink-0 min-w-[52px] text-center ${badgeColor}`}>
         {check.status.toUpperCase()}
       </span>
       <span className="text-sm text-[var(--color-brand-ink)] flex-1 min-w-0">{check.label}</span>
-      {check.affected_amount !== null && (
-        <span className="text-sm font-semibold tabular-nums text-[var(--color-brand-ink)] shrink-0">
-          {formatEur(check.affected_amount)}
-        </span>
-      )}
+      <span className="text-sm font-semibold tabular-nums text-[var(--color-brand-ink)] shrink-0 w-28 text-right">
+        {check.affected_amount !== null ? formatEur(check.affected_amount) : ""}
+      </span>
     </div>
   );
 }
@@ -250,7 +254,13 @@ export default function FindingsPage() {
               </div>
             )}
 
-            {planState === "loaded" && plan && (
+            {planState === "loaded" && plan && plan.items.length === 0 && (
+              <div className="p-4 rounded-lg border border-[var(--color-status-blocker)]/30 bg-[var(--color-status-blocker-bg)] text-sm text-[var(--color-status-blocker)]">
+                Fix plan generation returned no actions — check backend logs and ensure the API key is configured.
+              </div>
+            )}
+
+            {planState === "loaded" && plan && plan.items.length > 0 && (
               <>
                 {/* EU AI Act Art. 13 disclosure — not dismissible on fix plan */}
                 <div className="flex items-start gap-3 px-4 py-3 bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] border-l-4 border-l-[var(--color-brand-navy)]/30 rounded-lg text-xs text-[var(--color-brand-muted)] mb-6">

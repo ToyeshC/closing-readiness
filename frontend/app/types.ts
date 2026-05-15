@@ -97,4 +97,5 @@ export interface AnalysisResult {
   blocked_reason: string | null
   guided_response: string | null
   sector_benchmarks?: SectorBenchmarks | null
+  trace_id?: string | null
 }
