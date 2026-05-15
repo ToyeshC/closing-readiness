@@ -164,3 +164,168 @@ is multi-client support and persistent storage instead of module-level caches.
 - **Passing checks (4):** timing differences, CIT preliminary deviation, VAT provisional correction, AP aging
 - **DSO:** ~18 days (sector: ~30 days — actually healthy)
 - **DPO:** ~35 days
+
+---
+
+## Financial jargon — quick reference
+
+This section is for us (non-finance people). Memorise a few before the demo.
+
+### The big picture
+
+**Closing the books / year-end closing**
+At the end of a financial year, a company has to produce official financial statements: the
+balance sheet (what you own vs. what you owe) and the P&L (did you make money?). "Closing
+the books" is the process of making sure every transaction is recorded, categorised, and
+reconciled before those statements are signed off. If the data is messy, the statements
+are wrong — which is an audit risk and potentially a legal issue.
+
+**Closing readiness**
+How ready is the data for year-end close? Our tool scores this 0–100%. A score below 60%
+means the books have enough issues that an AI advisory could give wrong advice. That's why
+we check first.
+
+**General Ledger (GL)**
+The master record of every financial transaction the company has made. Each entry has a
+date, an amount, and an account code (like 1250, 8001). In Exact Online, this is called
+"Grootboek" in Dutch. Everything else (invoices, bank statements, VAT) feeds into the GL.
+
+**Account codes**
+Companies categorise transactions by account code. Fietsatelier Morgenwind uses:
+- `1250` — suspense/clearing account (catch-all for unclassified entries)
+- `1300` — accounts receivable (money customers owe)
+- `1700` — accounts payable (money the company owes suppliers)
+- `1870` — VAT payable/receivable
+- `4xxx` — operating expenses (OPEX: rent, salaries, repairs)
+- `0xxx` — capital expenditure (CAPEX: equipment purchases)
+- `7xxx` — cost of goods sold
+- `8xxx` — revenue
+
+### The 10 checks — what each one means
+
+**Suspense account balance (BLOCKER)**
+Account 1250 is a "parking lot" for transactions the bookkeeper hasn't classified yet.
+Think of it as a drawer where you throw receipts to sort later. If there's money sitting
+there at year-end, the books are incomplete — you don't know if that money is revenue,
+an expense, or an asset. Our client has €39,893 unclassified. This is the blocker.
+
+**Revenue reconciliation (FAIL)**
+The GL shows revenue in accounts 8xxx. There's also a separate sales invoice file.
+These two numbers should match. If they don't (>1% gap), either invoices are missing
+from the GL, or the GL has revenue entries with no invoice. Our client's gap is large —
+likely because not all sales were posted to the GL during the year.
+
+**CapEx/OpEx misclassification (FAIL)**
+CapEx (Capital Expenditure) = buying long-term assets (a new bike-repair machine, a van).
+OpEx (Operating Expenditure) = running costs (electricity, rent, wages). The difference
+matters for tax: OpEx is fully deducted in the current year, CapEx is depreciated over
+several years. If a €40,000 machine purchase is posted to account 4xxx (OpEx) instead of
+0xxx (CapEx), the tax calculation is wrong. We look for keywords like "machine",
+"inventaris" (inventory), "activa" (assets) in OpEx accounts.
+
+**Bank statement coverage (FAIL)**
+Every business day of the year should have at least one bank statement entry. If there
+are gaps (say, no bank activity recorded for 3 weeks in August), it either means the
+bookkeeper hasn't imported those statements yet, or there's a missing data source.
+Our check counts business days covered: <90% coverage = fail.
+
+**AR aging — stale receivables (FAIL)**
+Accounts Receivable (AR) = invoices you've sent to customers that haven't been paid yet.
+If an invoice is more than 90 days old and still "open" (unpaid), it's suspicious — it
+might be a bad debt (customer won't pay), or it might be a bookkeeping error (payment was
+received but not matched). Either way, the balance sheet is wrong. We found €22,854 in
+invoices older than 90 days.
+
+**Timing differences (PASS)**
+Every GL entry has a "booking date" (when the transaction happened) and an "accounting
+period" (which month it's assigned to). They should match. If an October invoice is
+posted to September (to make the September numbers look better), that's a timing
+manipulation — or just a bookkeeping mistake. We check all entries; this client passes.
+
+**VAT reconciliation (FAIL)**
+VAT = Value Added Tax (BTW in Dutch). Dutch companies charge 21% VAT on most sales and
+pay VAT on purchases, then settle the difference with the tax authority quarterly. The
+company submits official VAT returns (tax PDFs). Our check compares the VAT amount in
+the GL (account 1870) against the official VAT return PDFs. If they differ by >1%,
+either the GL is wrong or the tax return was filed incorrectly. Our client has a ~€145,000
+gap — serious.
+
+**CIT preliminary deviation (PASS)**
+CIT = Corporate Income Tax (Vennootschapsbelasting in Dutch). Companies pay a "provisional
+assessment" (advance payment) of corporate tax mid-year based on an estimate, then settle
+with the actual tax bill later. If the provisional payment differs from the final
+assessment by >10%, it signals either poor financial forecasting or an error. This client
+passes.
+
+**VAT provisional correction (PASS)**
+If a company makes multiple VAT payments in a single quarter (a "correction"), it might
+signal an error was found and corrected — which is fine — or it could indicate messy VAT
+records. We check for this pattern across all quarters.
+
+**AP aging — stale payables (PASS)**
+Accounts Payable (AP) = invoices from suppliers that the company hasn't paid yet. Same
+logic as AR aging: if you owe a supplier for more than 90 days, either the invoice wasn't
+paid (cash flow problem) or the payment wasn't matched in the system. This client passes.
+
+### Financial ratios — what they mean
+
+**DSO — Days Sales Outstanding**
+How many days on average does it take customers to pay their invoices? Formula: (open AR
+÷ revenue) × days in period. Lower = faster payment = better cash flow. 18 days is
+excellent for a bike workshop; sector average is ~30 days.
+
+**DPO — Days Payable Outstanding**
+How many days does the company take to pay its suppliers? Higher can be good (you're
+keeping cash longer) or bad (you're late on payments). 35 days is typical.
+
+**Working Capital**
+Current assets minus current liabilities. Basically: if you had to pay all your short-term
+debts today, how much would you have left? Positive = financially healthy.
+Formula here: Open AR − Open AP.
+
+**Gross Profit Margin**
+(Revenue − Cost of Goods Sold) ÷ Revenue. What percentage of each euro of sales is profit
+after paying for the goods/parts sold. Does not include overhead (rent, salaries).
+
+---
+
+## LangWatch audit trail — what it is and why we built it
+
+### What is LangWatch?
+
+LangWatch is an AI observability platform — think of it like application monitoring, but
+for AI calls. Every time our system calls Claude (Anthropic's AI), LangWatch records:
+- The exact prompt sent
+- The model used (claude-sonnet-4-6)
+- The response received
+- How long it took
+- A unique `trace_id` that links the AI call to the readiness report that triggered it
+
+You can see all traces at: https://app.langwatch.ai (Toyesh's account)
+
+### Why we built it in
+
+The hackathon brief asked for "responsible AI" and "explainability." The biggest risk with
+AI in finance is that an advisor trusts the output without understanding where it came from.
+The LangWatch audit trail solves this:
+
+1. **Every AI output is traceable.** The PDF report includes a `trace_id`. If a client
+   asks "why did you recommend reclassifying that entry?", the advisor can pull up the
+   exact prompt and response in LangWatch.
+
+2. **Approvals are logged.** When the advisor clicks "Approve selected" on the fix plan,
+   the system records which check_ids were approved and by whom. This is the human-in-the-loop
+   step: AI proposes, human decides.
+
+3. **The readiness guardrail is a traced span.** Even the decision "this data is too messy
+   to give advice" is recorded as a LangWatch span. Judges can see that the system didn't
+   just call Claude blindly — it ran 10 deterministic checks first, then decided whether
+   to allow the AI call.
+
+### What to say about it in the demo
+
+"Every Claude call goes through LangWatch. That trace_id at the bottom of the report page
+links this advisory to the exact prompt Claude received. If we're ever asked to justify an
+AI recommendation, we have a full audit trail — not just the output, but the input."
+
+Show the trace_id on the Report page (bottom of the hero section) or in the PDF.
