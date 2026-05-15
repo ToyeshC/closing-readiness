@@ -71,41 +71,47 @@ export function CheckCard({ check, delay = 0 }: CheckCardProps) {
             )}
           </div>
 
-          {check.affected_amount !== null && check.affected_amount !== undefined && (
-            <span className="text-sm font-semibold tabular-nums text-[var(--color-brand-ink)] hidden sm:block shrink-0">
-              {formatEur(check.affected_amount)}
-            </span>
-          )}
+          {/* Fixed-width amount column — always rendered to keep rows aligned */}
+          <span className="text-sm font-semibold tabular-nums text-[var(--color-brand-ink)] hidden sm:block shrink-0 w-28 text-right">
+            {check.affected_amount !== null && check.affected_amount !== undefined
+              ? formatEur(check.affected_amount)
+              : ""}
+          </span>
 
-          {check.status !== "pass" && (
-            <div className="flex items-center shrink-0" onClick={(e) => e.stopPropagation()}>
-              {fixState === "idle" && (
-                <button
-                  onClick={handleFix}
-                  className="text-xs text-[var(--color-brand-navy)] hover:underline cursor-pointer px-2 py-1"
-                >
-                  Fix this →
-                </button>
-              )}
-              {fixState === "loading" && (
-                <div className="w-3.5 h-3.5 border-2 border-[var(--color-brand-navy)] border-t-transparent rounded-full animate-spin mx-2" />
-              )}
-              {fixState === "error" && (
-                <button
-                  onClick={handleFix}
-                  className="text-xs text-[var(--color-status-blocker)] hover:underline cursor-pointer px-2 py-1"
-                >
-                  Retry →
-                </button>
-              )}
-            </div>
-          )}
+          {/* Fixed-width fix button column — always rendered to keep rows aligned */}
+          <div
+            className="w-20 text-right shrink-0 hidden sm:flex items-center justify-end"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {check.status !== "pass" && (
+              <>
+                {fixState === "idle" && (
+                  <button
+                    onClick={handleFix}
+                    className="text-xs text-[var(--color-brand-navy)] hover:underline cursor-pointer px-2 py-1"
+                  >
+                    Fix this →
+                  </button>
+                )}
+                {fixState === "loading" && (
+                  <div className="w-3.5 h-3.5 border-2 border-[var(--color-brand-navy)] border-t-transparent rounded-full animate-spin mx-2" />
+                )}
+                {fixState === "error" && (
+                  <button
+                    onClick={handleFix}
+                    className="text-xs text-[var(--color-status-blocker)] hover:underline cursor-pointer px-2 py-1"
+                  >
+                    Retry →
+                  </button>
+                )}
+              </>
+            )}
+          </div>
 
-          {hasSources && (
-            <span className="text-[10px] text-[var(--color-brand-muted)] shrink-0 select-none">
-              {open ? "▲" : `▼ ${check.source_lines.length}`}
-            </span>
-          )}
+          {/* Fixed-width source count column — always rendered to keep rows aligned */}
+          <span className="text-[10px] text-[var(--color-brand-muted)] shrink-0 w-8 text-right select-none">
+            {hasSources ? (open ? "▲" : `▼ ${check.source_lines.length}`) : ""}
+          </span>
         </div>
       </div>
 

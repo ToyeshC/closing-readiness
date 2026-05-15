@@ -68,9 +68,14 @@ export default function ReportPage() {
                 href="/advisory"
                 className="px-4 py-2 border border-white/30 rounded-lg text-white text-sm font-medium hover:bg-white/10 transition-colors"
               >
-                {readiness.advice_ready ? "View findings →" : "View findings →"}
+                View findings →
               </Link>
             </div>
+            {result.trace_id && (
+              <p className="text-white/25 text-[10px] font-mono mt-5 tracking-wide">
+                AI ANALYSIS · REF {result.trace_id} · claude-sonnet-4-6
+              </p>
+            )}
           </div>
         </div>
       </section>
