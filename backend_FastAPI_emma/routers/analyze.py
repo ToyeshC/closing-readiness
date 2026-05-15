@@ -17,12 +17,15 @@ from backend.services.readiness_engine import ReadinessEngine
 from backend.services.token_store import get_access_token, get_division_id, is_authenticated
 from backend_FastAPI_emma.schemas import (
     AnalysisResult,
+    CheckCorrelation,
     DataReadinessReportOut,
+    EarlyWarning,
+    InsightsResult,
     SingleFixRequest,
     SourceLineOut,
 )
 from backend.services.benchmarks import fetch_sector_benchmarks
-from backend_FastAPI_emma.services.fix_planner import generate_fix_plan, generate_single_fix
+from backend_FastAPI_emma.services.fix_planner import generate_fix_plan, generate_insights, generate_single_fix
 from backend_FastAPI_emma.services.reasoning import call_claude, call_claude_guided
 
 
@@ -266,6 +269,43 @@ async def approve_fix_plan(plan_id: str, body: FixPlanApproval):
         plan_id, body.approved_items, body.notes,
     )
     return {"logged": True, "plan_id": plan_id, "approved_items": body.approved_items}
+
+
+@router.post("/insights", response_model=InsightsResult)
+async def get_insights():
+    """Generate AI insights for the cached readiness report."""
+    global _last_report
+    if _last_report is None:
+        raise HTTPException(
+            status_code=409,
+            detail="No readiness report cached — run POST /api/v1/readiness first.",
+        )
+    try:
+        data = await asyncio.to_thread(generate_insights, _last_report)
+    except Exception as exc:
+        log.exception("Insights generation failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Insights LLM call failed: {exc}") from exc
+
+    warnings: list[EarlyWarning] = []
+    for w in (data.get("early_warnings") or []):
+        try:
+            warnings.append(EarlyWarning(**w))
+        except Exception:
+            pass
+
+    correlations: list[CheckCorrelation] = []
+    for c in (data.get("check_correlations") or []):
+        try:
+            correlations.append(CheckCorrelation(**c))
+        except Exception:
+            pass
+
+    return InsightsResult(
+        whats_working=data.get("whats_working"),
+        early_warnings=warnings,
+        check_correlations=correlations,
+        client_letter_nl=data.get("client_letter_nl"),
+    )
 
 
 @router.get("/readiness/{check_id}/sources", response_model=list[SourceLineOut])

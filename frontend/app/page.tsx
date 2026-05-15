@@ -27,6 +27,13 @@ export default function Home() {
   const [showRerun, setShowRerun] = useState(false);
 
   useEffect(() => {
+    // Clear stale analysis after OAuth re-auth (?fresh=1 set by callback redirect)
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("fresh") === "1") {
+      localStorage.removeItem("analysis_result");
+      window.history.replaceState({}, "", "/");
+      return;
+    }
     try {
       const raw = localStorage.getItem("analysis_result");
       if (raw) setResult(JSON.parse(raw));
