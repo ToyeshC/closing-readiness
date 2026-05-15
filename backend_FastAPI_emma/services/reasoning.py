@@ -3,6 +3,7 @@ import logging
 import os
 
 import anthropic
+import httpx
 import langwatch
 
 from backend.models import DataReadinessReport
@@ -10,18 +11,47 @@ from backend_FastAPI_emma.schemas import AdvisoryOutput
 
 log = logging.getLogger(__name__)
 
-# Initialise LangWatch observability. Reads LANGWATCH_API_KEY from env (set by
-# load_dotenv() in main.py). Every @langwatch.trace()-decorated call appears in
-# the LangWatch dashboard with the full prompt/response, latency, and token
-# counts. Combined with the @langwatch.trace on ReadinessEngine.run(), the demo
-# shows both the guardrail and the LLM call as spans of one trace.
 langwatch.setup()
 
-# Direct Anthropic SDK — the "responsible AI on Claude" narrative requires
-# Claude actually be the model, not GPT-OSS via OpenRouter. Sonnet 4.6 balances
-# reasoning capability for FACT/ASSUMPTION/ADVICE tagging with ~3-5s latency.
 _anthropic_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
 _MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+_OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+_OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free")
+
+
+def _call_openrouter(system: str, user: str, max_tokens: int) -> str:
+    if not _OPENROUTER_API_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY not set — no fallback available")
+    log.warning("Anthropic credits exhausted — falling back to OpenRouter (%s)", _OPENROUTER_MODEL)
+    resp = httpx.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={"Authorization": f"Bearer {_OPENROUTER_API_KEY}", "Content-Type": "application/json"},
+        json={
+            "model": _OPENROUTER_MODEL,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        },
+        timeout=60.0,
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"].strip()
+
+
+def _call_llm(system: str, user: str, max_tokens: int) -> str:
+    """Call Anthropic; fall back to OpenRouter on credit exhaustion."""
+    try:
+        kwargs: dict = {"model": _MODEL, "max_tokens": max_tokens, "messages": [{"role": "user", "content": user}]}
+        if system:
+            kwargs["system"] = system
+        resp = _anthropic_client.messages.create(**kwargs)
+        return resp.content[0].text.strip()
+    except anthropic.APIStatusError as e:
+        if e.status_code in (400, 429) and ("credit" in str(e).lower() or "balance" in str(e).lower()):
+            return _call_openrouter(system, user, max_tokens)
+        raise
 
 SYSTEM_PROMPT = """You are a financial analysis assistant for a Dutch SME advisory firm (Consult&Co.).
 You have been given structured financial data from Fietsatelier Morgenwind BV that has passed a \
@@ -93,16 +123,11 @@ def _build_context(report: DataReadinessReport) -> str:
 def call_claude(report: DataReadinessReport) -> list[AdvisoryOutput]:
     context = _build_context(report)
 
-    message = _anthropic_client.messages.create(
-        model=_MODEL,
-        max_tokens=1000,
+    raw = _call_llm(
         system=SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": f"Analyse this financial dataset and produce structured outputs:\n\n{context}",
-        }],
+        user=f"Analyse this financial dataset and produce structured outputs:\n\n{context}",
+        max_tokens=1000,
     )
-    raw = message.content[0].text.strip()
 
     # Some models wrap JSON in ```...``` fences; strip if present.
     if raw.startswith("```"):
@@ -142,12 +167,7 @@ For each issue: (1) explain in plain English what is wrong, (2) why it matters f
 (3) the exact step to fix it. Be direct. Prioritise blockers first.
 Return JSON: {{"guidance": [{{"issue": str, "impact": str, "fix_step": str}}]}}"""
 
-    resp = _anthropic_client.messages.create(
-        model=_MODEL,
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = resp.content[0].text.strip()
+    raw = _call_llm(system="", user=prompt, max_tokens=1024)
     if raw.startswith("```"):
         try:
             raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]

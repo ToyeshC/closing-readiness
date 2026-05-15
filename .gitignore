@@ -9,3 +9,4 @@ oauth_tokens.db
 .claude/worktrees/
 **/.DS_Store
 deferred.txt
+.vercel

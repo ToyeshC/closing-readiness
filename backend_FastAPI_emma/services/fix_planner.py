@@ -4,6 +4,7 @@ import os
 import re
 
 import anthropic
+import httpx
 import langwatch
 
 from backend.models import DataReadinessReport, FixPlan, FixPlanItem, ReadinessCheck
@@ -14,6 +15,40 @@ langwatch.setup()
 
 _anthropic_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
 _MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+_OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+_OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free")
+
+
+def _call_openrouter(system: str, user: str, max_tokens: int) -> str:
+    if not _OPENROUTER_API_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY not set — no fallback available")
+    log.warning("Anthropic credits exhausted — falling back to OpenRouter (%s)", _OPENROUTER_MODEL)
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": user})
+    resp = httpx.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={"Authorization": f"Bearer {_OPENROUTER_API_KEY}", "Content-Type": "application/json"},
+        json={"model": _OPENROUTER_MODEL, "max_tokens": max_tokens, "messages": messages},
+        timeout=90.0,
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"].strip()
+
+
+def _call_llm(system: str, user: str, max_tokens: int) -> str:
+    """Call Anthropic; fall back to OpenRouter on credit exhaustion."""
+    try:
+        kwargs: dict = {"model": _MODEL, "max_tokens": max_tokens, "messages": [{"role": "user", "content": user}]}
+        if system:
+            kwargs["system"] = system
+        resp = _anthropic_client.messages.create(**kwargs)
+        return resp.content[0].text.strip()
+    except anthropic.APIStatusError as e:
+        if e.status_code in (400, 429) and ("credit" in str(e).lower() or "balance" in str(e).lower()):
+            return _call_openrouter(system, user, max_tokens)
+        raise
 
 
 def _extract_json(text: str) -> str:
@@ -81,13 +116,7 @@ Period: {report.dataset.period_start} to {report.dataset.period_end}
 
 Prioritise blockers first, then high severity, then medium."""
 
-    resp = _anthropic_client.messages.create(
-        model=_MODEL,
-        max_tokens=4096,
-        system=_FIX_PLAN_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = _extract_json(resp.content[0].text)
+    raw = _extract_json(_call_llm(_FIX_PLAN_SYSTEM, prompt, 4096))
 
     items: list[FixPlanItem] = []
     try:
@@ -126,13 +155,7 @@ def generate_single_fix(check: ReadinessCheck, period_start, period_end) -> FixP
 
 Period: {period_start} to {period_end}"""
 
-    resp = _anthropic_client.messages.create(
-        model=_MODEL,
-        max_tokens=512,
-        system=_FIX_PLAN_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = _extract_json(resp.content[0].text)
+    raw = _extract_json(_call_llm(_FIX_PLAN_SYSTEM, prompt, 512))
 
     try:
         data = json.loads(raw)
@@ -168,13 +191,7 @@ Blockers ({len(blockers)}): {', '.join(c.label for c in blockers) or 'None'}
 Failing checks ({len(failing)}): {', '.join(c.label for c in failing) or 'None'}
 What is working: {whats_working or 'Not yet analysed'}"""
 
-    resp = _anthropic_client.messages.create(
-        model=_MODEL,
-        max_tokens=600,
-        system=_LETTER_EN_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return resp.content[0].text.strip()
+    return _call_llm(_LETTER_EN_SYSTEM, prompt, 600)
 
 
 _LETTER_NL_SYSTEM = """U bent een Nederlandse financieel adviseur. Schrijf een beknopte sluitingsgereedheidsbrief in formeel Nederlands (max 250 woorden).
@@ -201,13 +218,7 @@ Blokkades ({len(blockers)}): {', '.join(c.label for c in blockers) or 'Geen'}
 Falende checks ({len(failing)}): {', '.join(c.label for c in failing) or 'Geen'}
 Wat werkt goed: {whats_working or 'Nog niet geanalyseerd'}"""
 
-    resp = _anthropic_client.messages.create(
-        model=_MODEL,
-        max_tokens=600,
-        system=_LETTER_NL_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return resp.content[0].text.strip()
+    return _call_llm(_LETTER_NL_SYSTEM, prompt, 600)
 
 
 _INSIGHTS_SYSTEM = """You are a financial closing advisor for Dutch SMEs.
@@ -280,13 +291,7 @@ FAILING CHECKS ({len(failing)}):
 
 Overall score: {report.overall_score:.0%}. Advice ready: {report.advice_ready}."""
 
-    resp = _anthropic_client.messages.create(
-        model=_MODEL,
-        max_tokens=1500,
-        system=_INSIGHTS_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = _extract_json(resp.content[0].text)
+    raw = _extract_json(_call_llm(_INSIGHTS_SYSTEM, prompt, 1500))
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:

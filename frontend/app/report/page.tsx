@@ -21,7 +21,7 @@ export default function ReportPage() {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("analysis_result");
+      const raw = sessionStorage.getItem("analysis_result");
       if (raw) setResult(JSON.parse(raw));
     } catch {
       // ignore
