@@ -145,6 +145,7 @@ Period: {period_start} to {period_end}"""
 
 
 _INSIGHTS_SYSTEM = """You are a financial closing advisor for Dutch SMEs.
+Respond in English throughout.
 You are given a data readiness report with passing and failing checks.
 
 Produce structured insights in four categories:
