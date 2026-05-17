@@ -118,3 +118,13 @@ export interface InsightsResult {
   check_correlations: CheckCorrelation[]
   client_letter: string | null
 }
+
+export interface ReportOptions {
+  include_ratios: boolean
+  include_checks: boolean
+  include_insights: boolean
+  include_fix_plan: boolean
+  include_letter: boolean
+  notes: string
+  language: "en" | "nl"
+}

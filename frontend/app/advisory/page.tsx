@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import type { AnalysisResult, CheckCorrelation, EarlyWarning, FixPlan, InsightsResult, ReadinessCheck } from "../types";
+import type { AnalysisResult, CheckCorrelation, EarlyWarning, FixPlan, InsightsResult, ReadinessCheck, ReportOptions } from "../types";
 import { Header } from "../../components/Header";
 import { PlanItemCard } from "../../components/PlanItemCard";
-import { fetchFixPlan, approveFixPlan, fetchInsights } from "../../lib/api";
+import { fetchAuthStatus, fetchFixPlan, approveFixPlan, fetchInsights, downloadPdfReport } from "../../lib/api";
 import { formatEur } from "../../lib/format";
 
 function typeStyle(type: "FACT" | "ASSUMPTION" | "ADVICE") {
@@ -53,7 +53,6 @@ function BlockerRow({ check }: { check: ReadinessCheck }) {
 
   return (
     <div className="flex items-center gap-3 py-2.5 border-t border-[var(--color-brand-line)] first:border-0">
-      {/* Fixed width so BLOCKER and FAIL badges align labels */}
       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border shrink-0 min-w-[52px] text-center ${badgeColor}`}>
         {check.status.toUpperCase()}
       </span>
@@ -65,17 +64,7 @@ function BlockerRow({ check }: { check: ReadinessCheck }) {
   );
 }
 
-function InsightsPanel({
-  insights,
-  letterCopied,
-  onCopyLetter,
-}: {
-  insights: InsightsResult;
-  letterCopied: boolean;
-  onCopyLetter: (text: string) => void;
-}) {
-  const [letterOpen, setLetterOpen] = useState(false);
-
+function InsightsPanel({ insights }: { insights: InsightsResult }) {
   return (
     <div className="space-y-3">
       {/* What's working */}
@@ -106,18 +95,18 @@ function InsightsPanel({
         </div>
       )}
 
-      {/* Check correlations */}
+      {/* Root cause clusters */}
       {insights.check_correlations.length > 0 && (
-        <div className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] border-l-4 border-l-amber-400 rounded-xl p-4 motion-safe:animate-fade-in-up">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-700 mb-3">
-            Related issues
+        <div className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] border-l-4 border-l-[var(--color-brand-navy)]/30 rounded-xl p-4 motion-safe:animate-fade-in-up">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-brand-navy)] mb-3">
+            Root cause clusters
           </p>
           <div className="space-y-3">
             {insights.check_correlations.map((corr: CheckCorrelation, i: number) => (
               <div key={i}>
                 <div className="flex flex-wrap gap-1.5 mb-1.5">
                   {corr.check_ids.map((id) => (
-                    <span key={id} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                    <span key={id} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--color-brand-navy)]/8 text-[var(--color-brand-navy)] border border-[var(--color-brand-navy)]/20">
                       {id}
                     </span>
                   ))}
@@ -128,34 +117,6 @@ function InsightsPanel({
           </div>
         </div>
       )}
-
-      {/* Client letter draft */}
-      {insights.client_letter && (
-        <div className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] rounded-xl overflow-hidden motion-safe:animate-fade-in-up">
-          <button
-            onClick={() => setLetterOpen((v) => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 text-left cursor-pointer hover:bg-[var(--color-brand-cream)] transition-colors"
-          >
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-brand-navy)]">
-              Client letter draft (English)
-            </span>
-            <span className="text-xs text-[var(--color-brand-muted)]">{letterOpen ? "▲" : "▼"}</span>
-          </button>
-          {letterOpen && (
-            <div className="border-t border-[var(--color-brand-line)] px-4 py-4">
-              <p className="text-sm text-[var(--color-brand-ink)] leading-relaxed whitespace-pre-wrap mb-3">
-                {insights.client_letter}
-              </p>
-              <button
-                onClick={() => onCopyLetter(insights.client_letter!)}
-                className="inline-flex items-center gap-1.5 text-xs text-[var(--color-brand-navy)] hover:underline cursor-pointer font-medium"
-              >
-                {letterCopied ? "✓ Copied" : "Copy to clipboard"}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -163,6 +124,8 @@ function InsightsPanel({
 export default function FindingsPage() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [divisionId, setDivisionId] = useState<number | null>(null);
   const [planState, setPlanState] = useState<"idle" | "loading" | "loaded">("idle");
   const [plan, setPlan] = useState<FixPlan | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -172,15 +135,41 @@ export default function FindingsPage() {
   const [approveError, setApproveError] = useState<string | null>(null);
   const [insights, setInsights] = useState<InsightsResult | null>(null);
   const [insightsState, setInsightsState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
-  const [letterCopied, setLetterCopied] = useState(false);
+  const [reportOptions, setReportOptions] = useState<ReportOptions>({
+    include_ratios: true,
+    include_checks: true,
+    include_insights: true,
+    include_fix_plan: true,
+    include_letter: true,
+    notes: "",
+    language: "en",
+  });
+  const [pdfState, setPdfState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("analysis_result");
+      const raw = sessionStorage.getItem("analysis_result");
       if (raw) setResult(JSON.parse(raw));
+      const rawInsights = sessionStorage.getItem("insights_result");
+      if (rawInsights) {
+        setInsights(JSON.parse(rawInsights));
+        setInsightsState("loaded");
+      }
+      const rawPlan = sessionStorage.getItem("fix_plan");
+      if (rawPlan) {
+        setPlan(JSON.parse(rawPlan));
+        setPlanState("loaded");
+      }
     } catch {
       // ignore
     }
+  }, []);
+
+  useEffect(() => {
+    fetchAuthStatus()
+      .then((d) => { setAuthenticated(d.authenticated); setDivisionId(d.division_id); })
+      .catch(() => {});
   }, []);
 
   function toggleItem(checkId: string) {
@@ -198,6 +187,7 @@ export default function FindingsPage() {
       const p = await fetchFixPlan();
       setPlan(p);
       setPlanState("loaded");
+      sessionStorage.setItem("fix_plan", JSON.stringify(p));
     } catch {
       setPlanState("idle");
     }
@@ -209,18 +199,22 @@ export default function FindingsPage() {
       const data = await fetchInsights();
       setInsights(data);
       setInsightsState("loaded");
+      sessionStorage.setItem("insights_result", JSON.stringify(data));
     } catch {
       setInsightsState("error");
     }
   }
 
-  async function handleCopyLetter(text: string) {
+  async function handleDownloadPdf() {
+    setPdfState("loading");
+    setPdfError(null);
     try {
-      await navigator.clipboard.writeText(text);
-      setLetterCopied(true);
-      setTimeout(() => setLetterCopied(false), 2000);
-    } catch {
-      // ignore clipboard errors
+      await downloadPdfReport(reportOptions);
+      setPdfState("done");
+      setTimeout(() => setPdfState("idle"), 3000);
+    } catch (err) {
+      setPdfError(err instanceof Error ? err.message : "PDF generation failed");
+      setPdfState("error");
     }
   }
 
@@ -259,40 +253,43 @@ export default function FindingsPage() {
     (c) => c.status === "blocker" || c.status === "fail",
   );
 
-  if (approved !== null) {
-    return (
-      <main className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col">
-        <Header current="advisory" />
-        <div className="flex-1 flex items-center justify-center px-6">
-          <div className="text-center max-w-sm">
-            <div className="w-12 h-12 bg-[var(--color-brand-navy)]/10 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-2xl">✓</span>
-            </div>
-            <p className="text-base font-semibold text-[var(--color-brand-navy)] mb-2">
-              {approved} {approved === 1 ? "action" : "actions"} approved
-            </p>
-            <p className="text-sm text-[var(--color-brand-muted)] mb-4">
-              Approval logged to LangWatch. Execute the approved steps in Exact Online.
-            </p>
-            <Link href="/report" className="text-sm text-[var(--color-brand-navy)] hover:text-[var(--color-brand-rose-deep)] underline">
-              ← Back to report
-            </Link>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
   return (
-    <main className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col">
-      <Header current="advisory" />
+    <main
+      className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col"
+      style={{
+        backgroundImage: `repeating-linear-gradient(
+          180deg,
+          transparent, transparent 31px,
+          rgba(229,223,210,0.4) 31px,
+          rgba(229,223,210,0.4) 32px
+        )`,
+      }}
+    >
+      <Header current="advisory" authenticated={authenticated} divisionId={divisionId} />
+
+      {/* Context strip */}
+      <div className="bg-[var(--color-brand-surface)] border-b border-[var(--color-brand-line)]">
+        <div className="max-w-3xl mx-auto px-6 sm:px-8 py-2.5 flex items-center gap-3 text-xs flex-wrap">
+          <span className="font-semibold text-[var(--color-brand-navy)]">
+            {Math.round(readiness.overall_score * 100)}% Readiness
+          </span>
+          <span className="text-[var(--color-brand-line)]">·</span>
+          <span className={readiness.advice_ready ? "text-[var(--color-status-pass)] font-medium" : "text-amber-700 font-medium"}>
+            {readiness.advice_ready ? "Advisory ready" : "Guided diagnosis mode"}
+          </span>
+          <span className="text-[var(--color-brand-line)]">·</span>
+          <span className="text-[var(--color-brand-muted)]">
+            {readiness.checks.filter((c) => c.status === "blocker").length} blockers · {readiness.checks.filter((c) => c.status === "pass").length} passing
+          </span>
+        </div>
+      </div>
 
       <div className="max-w-3xl mx-auto w-full px-6 sm:px-8 py-10 flex-1">
         {!bannerDismissed && (
           <AiDisclosureBanner onDismiss={() => setBannerDismissed(true)} />
         )}
 
-        {/* ── Insights section (always shown when result is present) ─────── */}
+        {/* ── Insights section ─────────────────────────────────────────────── */}
         <div className="mb-6">
           {insightsState === "idle" && (
             <button
@@ -317,11 +314,7 @@ export default function FindingsPage() {
             </button>
           )}
           {insightsState === "loaded" && insights && (
-            <InsightsPanel
-              insights={insights}
-              letterCopied={letterCopied}
-              onCopyLetter={handleCopyLetter}
-            />
+            <InsightsPanel insights={insights} />
           )}
         </div>
 
@@ -366,14 +359,15 @@ export default function FindingsPage() {
             </div>
           </>
         ) : (
-          // Blocked — show issues and remediation plan CTA
+          // Guided diagnosis mode — advisor can proceed with awareness
           <>
-            <div className="mb-6 p-4 bg-[var(--color-status-blocker-bg)] border border-l-4 border-[var(--color-status-blocker)]/30 border-l-[var(--color-status-blocker)] rounded-lg motion-safe:animate-fade-in-up">
-              <p className="text-sm font-semibold text-[var(--color-status-blocker)] mb-1">
-                Advisory blocked{blocked_reason ? ` — ${blocked_reason}` : ""}
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl motion-safe:animate-fade-in-up">
+              <p className="text-sm font-semibold text-amber-800 mb-1">
+                Guided diagnosis mode{blocked_reason ? ` — ${blocked_reason}` : ""}
               </p>
-              <p className="text-sm text-[var(--color-brand-ink)]">
-                Resolve these issues in Exact Online before a closing advisory can run.
+              <p className="text-xs text-amber-700">
+                Data quality issues affect advisory accuracy. Fix recommendations are available below.
+                The advisor takes professional responsibility for any output generated with unresolved issues.
               </p>
             </div>
 
@@ -414,7 +408,7 @@ export default function FindingsPage() {
 
             {planState === "loaded" && plan && plan.items.length > 0 && (
               <>
-                {/* EU AI Act Art. 13 disclosure — not dismissible on fix plan */}
+                {/* EU AI Act Art. 13 disclosure */}
                 <div className="flex items-start gap-3 px-4 py-3 bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] border-l-4 border-l-[var(--color-brand-navy)]/30 rounded-lg text-xs text-[var(--color-brand-muted)] mb-6">
                   <p>
                     <span className="font-semibold text-[var(--color-brand-ink)]">AI-generated fix plan.</span>{" "}
@@ -455,25 +449,129 @@ export default function FindingsPage() {
                   {approveError && (
                     <p className="text-sm text-[var(--color-status-blocker)] mb-3">{approveError}</p>
                   )}
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs text-[var(--color-brand-muted)]">
-                      {selected.size === 0
-                        ? "Select actions to approve above"
-                        : `${selected.size} of ${plan.items.length} selected`}
-                    </p>
-                    <button
-                      onClick={handleApprove}
-                      disabled={selected.size === 0 || approving}
-                      className="px-5 py-2 rounded-lg bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-medium hover:bg-[var(--color-brand-navy-soft)] cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      {approving ? "Logging…" : `Approve ${selected.size > 0 ? selected.size : ""} selected`}
-                    </button>
-                  </div>
+                  {approved !== null ? (
+                    <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-[var(--color-status-pass-bg)] border border-[var(--color-status-pass)]/20 text-sm text-[var(--color-status-pass)] font-medium motion-safe:animate-fade-in-up">
+                      <span>✓</span>
+                      <span>
+                        {approved} {approved === 1 ? "action" : "actions"} approved — logged to LangWatch for audit trail
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-[var(--color-brand-muted)]">
+                        {selected.size === 0
+                          ? "Select actions to approve above"
+                          : `${selected.size} of ${plan.items.length} selected`}
+                      </p>
+                      <button
+                        onClick={handleApprove}
+                        disabled={selected.size === 0 || approving}
+                        className="px-5 py-2 rounded-lg bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-medium hover:bg-[var(--color-brand-navy-soft)] cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {approving ? "Logging…" : `Approve ${selected.size > 0 ? selected.size : ""} selected`}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </>
             )}
           </>
         )}
+
+        {/* PDF Report Download */}
+        <div className="mt-10 pt-8 border-t border-[var(--color-brand-line)]">
+          <div className="bg-[var(--color-brand-surface)] border border-[var(--color-brand-line)] rounded-xl p-5">
+            <p className="text-xs font-semibold uppercase tracking-widest text-[var(--color-brand-navy)] mb-4">
+              Generate Report
+            </p>
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {(
+                [
+                  { key: "include_ratios", label: "Financial ratios", disabled: false },
+                  { key: "include_checks", label: "Readiness checks", disabled: false },
+                  { key: "include_insights", label: "AI insights", disabled: insights === null, hint: "Analyse first" },
+                  { key: "include_fix_plan", label: "Fix plan", disabled: plan === null, hint: "Generate plan first" },
+                  { key: "include_letter", label: "Advisory summary", disabled: false },
+                ] as Array<{ key: keyof ReportOptions; label: string; disabled: boolean; hint?: string }>
+              ).map(({ key, label, disabled, hint }) => (
+                <label
+                  key={key}
+                  className={`flex items-center gap-2 select-none ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={disabled ? false : (reportOptions[key] as boolean)}
+                    disabled={disabled}
+                    onChange={(e) =>
+                      !disabled && setReportOptions((prev) => ({ ...prev, [key]: e.target.checked }))
+                    }
+                    className="w-3.5 h-3.5 accent-[var(--color-brand-navy)] cursor-pointer disabled:cursor-not-allowed"
+                  />
+                  <span className="text-xs text-[var(--color-brand-ink)]">
+                    {label}
+                    {disabled && hint && (
+                      <span className="ml-1 text-[10px] text-amber-600">({hint})</span>
+                    )}
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-brand-muted)] mb-1.5">
+                Advisor notes
+              </label>
+              <textarea
+                value={reportOptions.notes}
+                onChange={(e) => setReportOptions((prev) => ({ ...prev, notes: e.target.value }))}
+                placeholder="Additional notes for the report…"
+                rows={2}
+                className="w-full text-sm border border-[var(--color-brand-line)] rounded px-3 py-2 bg-[var(--color-brand-cream)] text-[var(--color-brand-ink)] placeholder:text-[var(--color-brand-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-navy)] resize-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-1 rounded-lg border border-[var(--color-brand-line)] overflow-hidden">
+                {(["en", "nl"] as const).map((lang) => (
+                  <button
+                    key={lang}
+                    onClick={() => setReportOptions((prev) => ({ ...prev, language: lang }))}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                      reportOptions.language === lang
+                        ? "bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)]"
+                        : "text-[var(--color-brand-muted)] hover:text-[var(--color-brand-ink)]"
+                    }`}
+                  >
+                    {lang.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-3">
+                {pdfState === "error" && pdfError && (
+                  <p className="text-xs text-[var(--color-status-blocker)]">{pdfError}</p>
+                )}
+                {pdfState === "done" && (
+                  <p className="text-xs text-[var(--color-status-pass)] font-medium">✓ Downloaded</p>
+                )}
+                <button
+                  onClick={handleDownloadPdf}
+                  disabled={pdfState === "loading"}
+                  className="px-5 py-2 rounded-lg bg-[var(--color-brand-navy)] text-[var(--color-brand-cream)] text-sm font-medium hover:bg-[var(--color-brand-navy-soft)] cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                >
+                  {pdfState === "loading" ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-[var(--color-brand-cream)] border-t-transparent rounded-full animate-spin inline-block" />
+                      Generating…
+                    </>
+                  ) : (
+                    "Download Report →"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
   );

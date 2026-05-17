@@ -4,6 +4,7 @@ import os
 import re
 
 import anthropic
+import httpx
 import langwatch
 
 from backend.models import DataReadinessReport, FixPlan, FixPlanItem, ReadinessCheck
@@ -14,6 +15,40 @@ langwatch.setup()
 
 _anthropic_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
 _MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+_OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+_OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free")
+
+
+def _call_openrouter(system: str, user: str, max_tokens: int) -> str:
+    if not _OPENROUTER_API_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY not set — no fallback available")
+    log.warning("Anthropic credits exhausted — falling back to OpenRouter (%s)", _OPENROUTER_MODEL)
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": user})
+    resp = httpx.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={"Authorization": f"Bearer {_OPENROUTER_API_KEY}", "Content-Type": "application/json"},
+        json={"model": _OPENROUTER_MODEL, "max_tokens": max_tokens, "messages": messages},
+        timeout=90.0,
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"].strip()
+
+
+def _call_llm(system: str, user: str, max_tokens: int) -> str:
+    """Call Anthropic; fall back to OpenRouter on credit exhaustion."""
+    try:
+        kwargs: dict = {"model": _MODEL, "max_tokens": max_tokens, "messages": [{"role": "user", "content": user}]}
+        if system:
+            kwargs["system"] = system
+        resp = _anthropic_client.messages.create(**kwargs)
+        return resp.content[0].text.strip()
+    except anthropic.APIStatusError as e:
+        if e.status_code in (400, 429) and ("credit" in str(e).lower() or "balance" in str(e).lower()):
+            return _call_openrouter(system, user, max_tokens)
+        raise
 
 
 def _extract_json(text: str) -> str:
@@ -35,7 +70,7 @@ Your task: produce a concrete, step-by-step fix plan that a human bookkeeper can
 
 Rules:
 1. Each item covers exactly one failing check.
-2. proposed_action must be a specific Exact Online action (e.g., "Open Exact Online → Financial → Journal Entries → filter account 1250 → reclassify each entry to the correct account").
+2. proposed_action must be a specific Exact Online action (e.g., "Open Exact Online → Financial → Journal Entries → filter account 1250 → reclassify each entry to the correct account"). Keep proposed_action under 40 words.
 3. Every number you reference must come verbatim from the issues list provided.
 4. confidence reflects how certain you are the proposed action will resolve the issue.
 5. risk_level reflects the risk of executing this action incorrectly (high = irreversible or regulatory impact).
@@ -81,13 +116,7 @@ Period: {report.dataset.period_start} to {report.dataset.period_end}
 
 Prioritise blockers first, then high severity, then medium."""
 
-    resp = _anthropic_client.messages.create(
-        model=_MODEL,
-        max_tokens=2048,
-        system=_FIX_PLAN_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = _extract_json(resp.content[0].text)
+    raw = _extract_json(_call_llm(_FIX_PLAN_SYSTEM, prompt, 4096))
 
     items: list[FixPlanItem] = []
     try:
@@ -126,13 +155,7 @@ def generate_single_fix(check: ReadinessCheck, period_start, period_end) -> FixP
 
 Period: {period_start} to {period_end}"""
 
-    resp = _anthropic_client.messages.create(
-        model=_MODEL,
-        max_tokens=512,
-        system=_FIX_PLAN_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = _extract_json(resp.content[0].text)
+    raw = _extract_json(_call_llm(_FIX_PLAN_SYSTEM, prompt, 512))
 
     try:
         data = json.loads(raw)
@@ -144,9 +167,66 @@ Period: {period_start} to {period_end}"""
     return None
 
 
+_LETTER_EN_SYSTEM = """You are a financial closing advisor writing a professional advisory letter for a Dutch SME client.
+Write a single formal English paragraph (~5 sentences) that an accountant can include in a client advisory letter.
+Cover the key data quality findings, overall readiness score, and next steps.
+Start with "In the context of the annual closing review for...".
+Return only the letter paragraph, no other text."""
+
+
+@langwatch.trace(name="letter_en_call")
+def generate_letter_en(report, insights: dict) -> str:
+    """Generate an English version of the client advisory letter."""
+    whats_working = insights.get("whats_working", "")
+    blockers = [c for c in report.checks if c.status == "blocker"]
+    failing = [c for c in report.checks if c.status in ("fail", "warn")]
+
+    prompt = f"""Generate an English advisory letter paragraph for this closing readiness report.
+
+Period: {report.dataset.period_start} to {report.dataset.period_end}
+Overall score: {report.overall_score:.0%}
+Advice ready: {report.advice_ready}
+
+Blockers ({len(blockers)}): {', '.join(c.label for c in blockers) or 'None'}
+Failing checks ({len(failing)}): {', '.join(c.label for c in failing) or 'None'}
+What is working: {whats_working or 'Not yet analysed'}"""
+
+    return _call_llm(_LETTER_EN_SYSTEM, prompt, 600)
+
+
+_LETTER_NL_SYSTEM = """U bent een Nederlandse financieel adviseur. Schrijf een beknopte sluitingsgereedheidsbrief in formeel Nederlands (max 250 woorden).
+Vermeld de periode, de overall score, de belangrijkste bevindingen en aanbevolen vervolgstappen.
+Begin met "In het kader van de jaarafsluiting...".
+Onderteken als "Consult&Co Financieel Advies".
+Geef alleen de brieftekst terug, geen andere tekst."""
+
+
+@langwatch.trace(name="letter_nl_call")
+def generate_letter_nl(report, insights: dict) -> str:
+    """Generate a Dutch version of the client advisory letter as fallback."""
+    whats_working = insights.get("whats_working", "")
+    blockers = [c for c in report.checks if c.status == "blocker"]
+    failing = [c for c in report.checks if c.status in ("fail", "warn")]
+
+    prompt = f"""Genereer een Nederlandse adviesbrief voor dit sluitingsgereedheidsrapport.
+
+Periode: {report.dataset.period_start} tot {report.dataset.period_end}
+Overall score: {report.overall_score:.0%}
+Advies gereed: {report.advice_ready}
+
+Blokkades ({len(blockers)}): {', '.join(c.label for c in blockers) or 'Geen'}
+Falende checks ({len(failing)}): {', '.join(c.label for c in failing) or 'Geen'}
+Wat werkt goed: {whats_working or 'Nog niet geanalyseerd'}"""
+
+    return _call_llm(_LETTER_NL_SYSTEM, prompt, 600)
+
+
 _INSIGHTS_SYSTEM = """You are a financial closing advisor for Dutch SMEs.
 Respond in English throughout.
 You are given a data readiness report with passing and failing checks.
+
+Respond in English for all fields (whats_working, early_warnings, check_correlations).
+The client_letter_nl field must be in formal Dutch only.
 
 Produce structured insights in four categories:
 
@@ -212,13 +292,7 @@ FAILING CHECKS ({len(failing)}):
 
 Overall score: {report.overall_score:.0%}. Advice ready: {report.advice_ready}."""
 
-    resp = _anthropic_client.messages.create(
-        model=_MODEL,
-        max_tokens=1500,
-        system=_INSIGHTS_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = _extract_json(resp.content[0].text)
+    raw = _extract_json(_call_llm(_INSIGHTS_SYSTEM, prompt, 1500))
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:

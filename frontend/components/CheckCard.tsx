@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { ReadinessCheck, FixPlanItem } from "../app/types";
 import { StatusBadge } from "./StatusBadge";
 import { fetchSingleCheckFix } from "../lib/api";
@@ -26,6 +26,16 @@ export function CheckCard({ check, delay = 0 }: CheckCardProps) {
   const hasSources = check.source_lines.length > 0;
   const styles = STATUS_STYLES[check.status] ?? STATUS_STYLES.pass;
 
+  useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem(`fix_${check.check_id}`);
+      if (cached) {
+        setFixItem(JSON.parse(cached));
+        setFixState("loaded");
+      }
+    } catch { /* ignore */ }
+  }, [check.check_id]);
+
   async function handleFix(e: React.MouseEvent) {
     e.stopPropagation();
     setFixState("loading");
@@ -33,6 +43,7 @@ export function CheckCard({ check, delay = 0 }: CheckCardProps) {
       const item = await fetchSingleCheckFix(check.check_id);
       setFixItem(item);
       setFixState("loaded");
+      sessionStorage.setItem(`fix_${check.check_id}`, JSON.stringify(item));
     } catch {
       setFixState("error");
     }

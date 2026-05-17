@@ -12,23 +12,32 @@ import { ScoreGauge } from "../../components/ScoreGauge";
 import { KpiTile } from "../../components/KpiTile";
 import { CheckCard } from "../../components/CheckCard";
 import { formatEur, formatCompactEur, formatDays, formatPct } from "../../lib/format";
+import { fetchAuthStatus } from "../../lib/api";
 
 export default function ReportPage() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [divisionId, setDivisionId] = useState<number | null>(null);
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("analysis_result");
+      const raw = sessionStorage.getItem("analysis_result");
       if (raw) setResult(JSON.parse(raw));
     } catch {
       // ignore
     }
   }, []);
 
+  useEffect(() => {
+    fetchAuthStatus()
+      .then((d) => { setAuthenticated(d.authenticated); setDivisionId(d.division_id); })
+      .catch(() => {});
+  }, []);
+
   if (!result) {
     return (
       <main className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col">
-        <Header current="report" />
+        <Header current="report" authenticated={authenticated} divisionId={divisionId} />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-[var(--color-brand-muted)]">
             <p className="text-lg mb-3">No readiness report yet.</p>
@@ -47,13 +56,23 @@ export default function ReportPage() {
   const { readiness } = result;
 
   return (
-    <main className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col">
-      <Header current="report" />
+    <main
+      className="min-h-screen bg-[var(--color-brand-cream)] flex flex-col"
+      style={{
+        backgroundImage: `repeating-linear-gradient(
+          180deg,
+          transparent, transparent 31px,
+          rgba(229,223,210,0.4) 31px,
+          rgba(229,223,210,0.4) 32px
+        )`,
+      }}
+    >
+      <Header current="report" authenticated={authenticated} divisionId={divisionId} />
 
       {/* Full-width navy hero */}
       <section className="bg-[var(--color-brand-navy)] w-full">
         <div className="max-w-5xl mx-auto px-6 sm:px-8 py-12 flex flex-col sm:flex-row items-center gap-8 sm:gap-10">
-          <ScoreGauge score={readiness.overall_score} size={150} />
+          <ScoreGauge score={readiness.overall_score} size={150} variant="light" />
           <div className="flex-1 text-center sm:text-left">
             <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold text-white mb-2 leading-snug">
               Financial Closing Review

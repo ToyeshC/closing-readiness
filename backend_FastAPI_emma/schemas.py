@@ -96,6 +96,16 @@ class InsightsResult(BaseModel):
     client_letter: str | None = None
 
 
+class ReportOptions(BaseModel):
+    include_ratios: bool = True
+    include_checks: bool = True
+    include_insights: bool = True
+    include_fix_plan: bool = True
+    include_letter: bool = True
+    notes: str = ""
+    language: Literal["en", "nl"] = "en"
+
+
 class AnalysisResult(BaseModel):
     # Top-level response shape returned by POST /api/v1/readiness.
     # Uses DataReadinessReportOut (not DataReadinessReport) so the full response
