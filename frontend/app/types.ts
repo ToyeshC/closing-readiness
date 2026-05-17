@@ -116,7 +116,7 @@ export interface InsightsResult {
   whats_working: string | null
   early_warnings: EarlyWarning[]
   check_correlations: CheckCorrelation[]
-  client_letter_nl: string | null
+  client_letter: string | null
 }
 
 export interface ReportOptions {

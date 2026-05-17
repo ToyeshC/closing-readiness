@@ -93,7 +93,7 @@ class InsightsResult(BaseModel):
     whats_working: str | None = None
     early_warnings: list[EarlyWarning] = []
     check_correlations: list[CheckCorrelation] = []
-    client_letter_nl: str | None = None
+    client_letter: str | None = None
 
 
 class ReportOptions(BaseModel):

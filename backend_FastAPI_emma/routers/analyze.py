@@ -309,7 +309,7 @@ async def get_insights():
         whats_working=data.get("whats_working"),
         early_warnings=warnings,
         check_correlations=correlations,
-        client_letter_nl=data.get("client_letter_nl"),
+        client_letter=data.get("client_letter"),
     )
 
 
